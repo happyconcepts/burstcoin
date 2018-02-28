@@ -1,233 +1,142 @@
 package brs;
 
-import com.codahale.metrics.JmxReporter;
-import com.codahale.metrics.MetricRegistry;
-import com.github.gquintana.metrics.util.SqlObjectNameFactory;
-import brs.db.firebird.FirebirdDbs;
-import brs.db.h2.H2Dbs;
-import brs.db.mariadb.MariadbDbs;
+import brs.AT.HandleATBlockTransactionsListener;
+import brs.GeneratorImpl.MockGeneratorImpl;
+import brs.blockchainlistener.DevNullListener;
+import brs.common.Props;
+import brs.db.BlockDb;
+import brs.db.BurstKey;
+import brs.db.cache.DBCacheManagerImpl;
+import brs.db.EntityTable;
 import brs.db.sql.Db;
+
+import brs.db.store.BlockchainStore;
 import brs.db.store.Dbs;
+import brs.db.store.DerivedTableManager;
 import brs.db.store.Stores;
 import brs.http.API;
+import brs.http.APITransactionManager;
+import brs.http.APITransactionManagerImpl;
 import brs.peer.Peers;
-import brs.user.Users;
+import brs.services.ATService;
+import brs.services.AccountService;
+import brs.services.AliasService;
+import brs.services.AssetAccountService;
+import brs.services.AssetService;
+import brs.services.AssetTransferService;
+import brs.services.BlockService;
+import brs.services.DGSGoodsStoreService;
+import brs.services.EscrowService;
+import brs.services.OrderService;
+import brs.services.ParameterService;
+import brs.services.PropertyService;
+import brs.services.SubscriptionService;
+import brs.services.TimeService;
+import brs.services.TradeService;
+import brs.services.TransactionService;
+import brs.services.impl.ATServiceImpl;
+import brs.services.impl.AccountServiceImpl;
+import brs.services.impl.AliasServiceImpl;
+import brs.services.impl.AssetAccountServiceImpl;
+import brs.services.impl.AssetServiceImpl;
+import brs.services.impl.AssetTransferServiceImpl;
+import brs.services.impl.BlockServiceImpl;
+import brs.services.impl.DGSGoodsStoreServiceImpl;
+import brs.services.impl.EscrowServiceImpl;
+import brs.services.impl.OrderServiceImpl;
+import brs.services.impl.ParameterServiceImpl;
+import brs.services.impl.PropertyServiceImpl;
+import brs.services.impl.SubscriptionServiceImpl;
+import brs.services.impl.TimeServiceImpl;
+import brs.services.impl.TradeServiceImpl;
+import brs.services.impl.TransactionServiceImpl;
+import brs.statistics.StatisticsManagerImpl;
+import brs.util.DownloadCacheImpl;
 import brs.util.LoggerConfigurator;
 import brs.util.ThreadPool;
 import brs.util.Time;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.Properties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class Burst {
 
-  public static final String VERSION     = "1.9.1";
+  public static final String VERSION = "1.9.1";
   public static final String APPLICATION = "BRS";
 
-  private static final String LOG_UNDEF_NAME_DEFAULT = "{} undefined. Default: {}";
   private static final String DEFAULT_PROPERTIES_NAME = "brs-default.properties";
 
-  public static final MetricRegistry metrics = new MetricRegistry();
   private static final Logger logger = LoggerFactory.getLogger(Burst.class);
-  private static final Properties defaultProperties = new Properties();
-  private static final Properties properties = new Properties(defaultProperties);
-  private static volatile Time time = new Time.EpochTime();
+  private static Properties properties;
+
   private static Stores stores;
   private static Dbs dbs;
-  private static Generator generator = new GeneratorImpl();
 
-  static {
-    logger.info("Initializing Burst server version {}", VERSION);
+  private static ThreadPool threadPool;
+
+  private static BlockchainImpl blockchain;
+  private static BlockchainProcessorImpl blockchainProcessor;
+  private static TransactionProcessorImpl transactionProcessor;
+
+  private static PropertyService propertyService;
+  private static EconomicClustering economicClustering;
+
+  private static DBCacheManagerImpl dbCacheManager;
+
+  private static API api;
+
+  private static PropertyService loadProperties() {
+    final Properties defaultProperties = new Properties();
+
+    logger.info("Initializing Burst Reference Software (BRS) version {}", VERSION);
     try (InputStream is = ClassLoader.getSystemResourceAsStream(DEFAULT_PROPERTIES_NAME)) {
       if (is != null) {
         defaultProperties.load(is);
-      }
-      else {
+      } else {
         String configFile = System.getProperty(DEFAULT_PROPERTIES_NAME);
+
         if (configFile != null) {
           try (InputStream fis = new FileInputStream(configFile)) {
             defaultProperties.load(fis);
           } catch (IOException e) {
             throw new RuntimeException("Error loading " + DEFAULT_PROPERTIES_NAME + " from " + configFile);
           }
-        }
-        else {
+        } else {
           throw new RuntimeException(DEFAULT_PROPERTIES_NAME + " not in classpath and system property " + DEFAULT_PROPERTIES_NAME + " not defined either");
         }
       }
-    }
-    catch (IOException e) {
+    } catch (IOException e) {
       throw new RuntimeException("Error loading " + DEFAULT_PROPERTIES_NAME, e);
     }
-  }
 
-  static {
     try (InputStream is = ClassLoader.getSystemResourceAsStream("brs.properties")) {
+      properties = new Properties(defaultProperties);
       if (is != null) { // parse if brs.properties was loaded
         properties.load(is);
       }
-    }
-    catch (IOException e) {
+    } catch (IOException e) {
       throw new RuntimeException("Error loading brs.properties", e);
     }
+
+    return new PropertyServiceImpl(properties);
   }
 
   private Burst() {
   } // never
 
-  // Boolean Properties handling
-  public static Boolean getBooleanProperty(String name, boolean assume) {
-    String value = properties.getProperty(name);
-
-    if (value != null) {
-      if (value.matches("(?i)^1|true|yes|on$")) {
-        logger.debug("{} = 'true'", name);
-        return true;
-      }
-
-      if (value.matches("(?i)^0|false|no|off$")) {
-        logger.debug("{} = 'false'", name);
-        return false;
-      }
-    }
-
-    logger.info(LOG_UNDEF_NAME_DEFAULT, name, assume);
-    return assume;
+  public static BlockchainImpl getBlockchain() {
+    return blockchain;
   }
 
-  public static Boolean getBooleanProperty(String name) {
-    return getBooleanProperty(name, false);
+  public static BlockchainProcessorImpl getBlockchainProcessor() {
+    return blockchainProcessor;
   }
 
-  // Int Properties handling, can accept binary (0b), decimal and hexadecimal (0x) numbers
-  public static int getIntProperty(String name, int defaultValue) {
-    try {
-      String value = properties.getProperty(name);
-      int radix    = 10;
-
-      if (value!= null && value.matches("(?i)^0x.+$")) {
-        value = value.replaceFirst("^0x", "");
-        radix = 16;
-      }
-      else if (value != null && value.matches("(?i)^0b[01]+$")) {
-        value = value.replaceFirst("^0b", "");
-        radix = 2;
-      }
-
-      int result   = Integer.parseInt(value, radix);
-      logger.debug("{} = '{}'", name, result);
-      return result;
-    }
-    catch (NumberFormatException e) {
-      logger.info(LOG_UNDEF_NAME_DEFAULT, name, defaultValue);
-      return defaultValue;
-    }
-  }
-
-  // without any default value, we assume 0 and are facade for the generic previous method
-  public static int getIntProperty(String name) {
-    return getIntProperty(name, 0);
-  }
-
-  // String Properties handling
-  public static String getStringProperty(String name, String defaultValue) {
-    String value = properties.getProperty(name);
-    if (value != null && !"".equals(value)) {
-      logger.debug(name + " = \"" + value + "\"");
-      return value;
-    }
-
-    logger.info(LOG_UNDEF_NAME_DEFAULT, name, defaultValue);
-
-    return defaultValue;
-  }
-
-  public static String getStringProperty(String name) {
-    return getStringProperty(name, null);
-  }
-
-  // StringList Properties handling
-  public static List<String> getStringListProperty(String name) {
-    String value = getStringProperty(name);
-    if (value == null || value.length() == 0) {
-      return Collections.emptyList();
-    }
-    List<String> result = new ArrayList<>();
-    for (String s : value.split(";")) {
-      s = s.trim();
-      if (s.length() > 0) {
-        result.add(s);
-      }
-    }
-    return result;
-  }
-
-  public static Blockchain getBlockchain() {
-    return BlockchainImpl.getInstance();
-  }
-
-  public static BlockchainProcessor getBlockchainProcessor() {
-    return BlockchainProcessorImpl.getInstance();
-  }
-
-  public static TransactionProcessor getTransactionProcessor() {
-    return TransactionProcessorImpl.getInstance();
-  }
-
-  public static Generator getGenerator() {
-    return generator;
-  }
-
-  public static void setGenerator(Generator newGenerator) {
-    generator = newGenerator;
-  }
-
-  public static int getEpochTime() {
-    return time.getTime();
-  }
-
-  static void setTime(Time t) {
-    time = t;
-  }
-
-  public static void main(String[] args) {
-    Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
-        @Override
-        public void run() {
-          shutdown();
-        }
-      }));
-    init();
-  }
-
-  public static void init(Properties customProperties) {
-    properties.putAll(customProperties);
-    init();
-  }
-
-  public static void init() {
-    Init.init();
-  }
-
-  public static void shutdown() {
-    logger.info("Shutting down...");
-    API.shutdown();
-    Users.shutdown();
-    Peers.shutdown();
-    ThreadPool.shutdown();
-    Db.shutdown();
-    if (BlockchainProcessorImpl.getOclVerify()) {
-      OCLPoC.destroy();
-    }
-    logger.info("Burst server " + VERSION + " stopped.");
-    LoggerConfigurator.shutdown();
+  public static TransactionProcessorImpl getTransactionProcessor() {
+    return transactionProcessor;
   }
 
   public static Stores getStores() {
@@ -238,78 +147,150 @@ public final class Burst {
     return dbs;
   }
 
-  private static class Init {
+  public static void main(String[] args) {
+    Runtime.getRuntime().addShutdownHook(new Thread(Burst::shutdown));
+    init();
+  }
 
-    static {
-      try {
-        final JmxReporter reporter = JmxReporter.forRegistry(metrics).createsObjectNamesWith(new SqlObjectNameFactory()).build();
-        reporter.start();
+  public static void init(Properties customProperties) {
+    properties.putAll(customProperties);
+    init();
+  }
 
-        long startTime = System.currentTimeMillis();
+  public static void init() {
+    try {
+      long startTime = System.currentTimeMillis();
 
-        LoggerConfigurator.init();
+      final TimeService timeService = new TimeServiceImpl();
 
-        dbs = Db.getDbsByDatabaseType();
+      final DerivedTableManager derivedTableManager = new DerivedTableManager();
 
-        stores = new Stores();
+      final StatisticsManagerImpl statisticsManager = new StatisticsManagerImpl(timeService);
+      dbCacheManager = new DBCacheManagerImpl(statisticsManager);
 
-        TransactionProcessorImpl.getInstance();
-        BlockchainProcessorImpl.getInstance();
+      propertyService = loadProperties();
+
+      threadPool = new ThreadPool(propertyService);
+
+      LoggerConfigurator.init();
+
+      Db.init(propertyService, dbCacheManager);
+      dbs = Db.getDbsByDatabaseType();
 
 
-        Account.init();
-        Alias.init();
-        Asset.init();
-        DigitalGoodsStore.init();
-        Order.init();
-        Trade.init();
-        AssetTransfer.init();
-        Peers.init();
-        getGenerator().init();
-        API.init();
-        Users.init();
-        DebugTrace.init();
+      stores = new Stores(derivedTableManager, dbCacheManager, timeService);
 
-        int timeMultiplier = (Constants.isTestnet && Constants.isOffline) ? Math.max(getIntProperty("brs.timeMultiplier"), 1) : 1;
+      final TransactionDb transactionDb = dbs.getTransactionDb();
+      final BlockDb blockDb =  dbs.getBlockDb();
+      final BlockchainStore blockchainStore = stores.getBlockchainStore();
+      blockchain = new BlockchainImpl(transactionDb, blockDb, blockchainStore);
 
-        ThreadPool.start(timeMultiplier);
-        if (timeMultiplier > 1) {
-          setTime(new Time.FasterTime(Math.max(getEpochTime(), getBlockchain().getLastBlock().getTimestamp()), timeMultiplier));
-          logger.info("TIME WILL FLOW " + timeMultiplier + " TIMES FASTER!");
-        }
+      economicClustering = new EconomicClustering(blockchain);
 
-        long currentTime = System.currentTimeMillis();
-        logger.info("Initialization took " + (currentTime - startTime) + " ms");
-        logger.info("Burst server " + VERSION + " started successfully.");
+      final BurstKey.LongKeyFactory<Transaction> unconfirmedTransactionDbKeyFactory =
+          stores.getTransactionProcessorStore().getUnconfirmedTransactionDbKeyFactory();
 
-        if (Constants.isTestnet) {
-          logger.info("RUNNING ON TESTNET - DO NOT USE REAL ACCOUNTS!");
-        }
-        if (getBooleanProperty("brs.mockMining")) {
-          setGenerator(new GeneratorImpl.MockGeneratorImpl());
-        }
 
-        if (BlockchainProcessorImpl.getOclVerify()) {
-          try {
-            OCLPoC.init();
-          }
-          catch (OCLPoC.OCLCheckerException e) {
-            logger.error("Error initializing OpenCL, disabling ocl verify: " + e.getMessage());
-            BlockchainProcessorImpl.setOclVerify(false);
-          }
-        }
+      final EntityTable<Transaction> unconfirmedTransactionTable =
+          stores.getTransactionProcessorStore().getUnconfirmedTransactionTable();
+
+
+      final Generator generator = propertyService.getBoolean(Props.DEV_MOCK_MINING) ? new MockGeneratorImpl() : new GeneratorImpl(blockchain, timeService);
+
+      final AccountService accountService = new AccountServiceImpl(stores.getAccountStore(), stores.getAssetTransferStore());
+
+      final TransactionService transactionService = new TransactionServiceImpl(accountService, blockchain);
+
+      transactionProcessor = new TransactionProcessorImpl(unconfirmedTransactionDbKeyFactory, unconfirmedTransactionTable, propertyService, economicClustering, blockchain, stores, timeService, dbs,
+          accountService, transactionService, threadPool);
+
+      final ATService atService = new ATServiceImpl(stores.getAtStore());
+      final AliasService aliasService = new AliasServiceImpl(stores.getAliasStore());
+      final SubscriptionService subscriptionService = new SubscriptionServiceImpl(stores.getSubscriptionStore(), transactionDb, blockchain, aliasService, accountService);
+      final DGSGoodsStoreService digitalGoodsStoreService = new DGSGoodsStoreServiceImpl(blockchain, stores.getDigitalGoodsStoreStore(), accountService);
+      final EscrowService escrowService = new EscrowServiceImpl(stores.getEscrowStore(), blockchain, aliasService, accountService);
+      final TradeService tradeService = new TradeServiceImpl(stores.getTradeStore());
+      final AssetAccountService assetAccountService = new AssetAccountServiceImpl(stores.getAccountStore());
+      final AssetTransferService assetTransferService = new AssetTransferServiceImpl(stores.getAssetTransferStore());
+      final AssetService assetService = new AssetServiceImpl(assetAccountService, tradeService, stores.getAssetStore(), assetTransferService);
+      final OrderService orderService = new OrderServiceImpl(stores.getOrderStore(), accountService, tradeService);
+
+      final DownloadCacheImpl downloadCache = new DownloadCacheImpl(propertyService, blockchain);
+
+      final BlockService blockService = new BlockServiceImpl(accountService, transactionService, blockchain, downloadCache, generator);
+      blockchainProcessor = new BlockchainProcessorImpl(threadPool, blockService, transactionProcessor, blockchain, propertyService, subscriptionService,
+          timeService, accountService, derivedTableManager,
+          blockDb, transactionDb, economicClustering, blockchainStore, stores, escrowService, transactionService, downloadCache, generator, statisticsManager);
+
+      generator.generateForBlockchainProcessor(threadPool, blockchainProcessor);
+
+      final ParameterService parameterService = new ParameterServiceImpl(accountService, aliasService, assetService,
+          digitalGoodsStoreService, blockchain, blockchainProcessor, transactionProcessor, atService);
+
+      addBlockchainListeners(blockchainProcessor, accountService, digitalGoodsStoreService, blockchain, dbs.getTransactionDb());
+
+      final APITransactionManager apiTransactionManager = new APITransactionManagerImpl(parameterService, transactionProcessor, blockchain, accountService, transactionService);
+
+      Peers.init(timeService, accountService, blockchain, transactionProcessor, blockchainProcessor, propertyService, threadPool);
+
+      // TODO this really should be better...
+      TransactionType.init(blockchain, accountService, digitalGoodsStoreService, aliasService, assetService, orderService, assetTransferService, subscriptionService, escrowService);
+
+
+      api = new API(transactionProcessor, blockchain, blockchainProcessor, parameterService,
+          accountService, aliasService, orderService, assetService, assetTransferService,
+          tradeService, escrowService, digitalGoodsStoreService, assetAccountService,
+          subscriptionService, atService, timeService, economicClustering, propertyService, threadPool, transactionService, blockService, generator, apiTransactionManager);
+
+      DebugTrace.init(propertyService, blockchainProcessor, tradeService, orderService, digitalGoodsStoreService);
+
+      int timeMultiplier = (Constants.isTestnet && Constants.isOffline) ? Math.max(propertyService.getInt(Props.DEV_TIMEWARP), 1) : 1;
+
+      threadPool.start(timeMultiplier);
+      if (timeMultiplier > 1) {
+        timeService.setTime(new Time.FasterTime(Math.max(timeService.getEpochTime(), getBlockchain().getLastBlock().getTimestamp()), timeMultiplier));
+        logger.info("TIME WILL FLOW " + timeMultiplier + " TIMES FASTER!");
       }
-      catch (Exception e) {
-        logger.error(e.getMessage(), e);
-        System.exit(1);
+
+      long currentTime = System.currentTimeMillis();
+      logger.info("Initialization took " + (currentTime - startTime) + " ms");
+      logger.info("BRS " + VERSION + " started successfully.");
+
+      if (Constants.isTestnet) {
+        logger.info("RUNNING ON TESTNET - DO NOT USE REAL ACCOUNTS!");
       }
-    }
-
-    //    private Init() {
-    //  logger.info("private Init");
-    // } // never
-
-    private static void init() {
+    } catch (Exception e) {
+      logger.error(e.getMessage(), e);
+      System.exit(1);
     }
   }
+
+  private static void addBlockchainListeners(BlockchainProcessor blockchainProcessor, AccountService accountService, DGSGoodsStoreService goodsService, Blockchain blockchain,
+     TransactionDb transactionDb) {
+
+    final HandleATBlockTransactionsListener handleATBlockTransactionListener = new HandleATBlockTransactionsListener(accountService, blockchain, transactionDb);
+    final DevNullListener devNullListener = new DevNullListener(accountService, goodsService);
+
+    blockchainProcessor.addListener(handleATBlockTransactionListener, BlockchainProcessor.Event.AFTER_BLOCK_APPLY);
+    blockchainProcessor.addListener(devNullListener, BlockchainProcessor.Event.AFTER_BLOCK_APPLY);
+  }
+
+  public static void shutdown() {
+    logger.info("Shutting down...");
+    api.shutdown();
+    Peers.shutdown(threadPool);
+    threadPool.shutdown();
+    dbCacheManager.close();
+    Db.shutdown();
+    if (blockchainProcessor != null && blockchainProcessor.getOclVerify()) {
+      OCLPoC.destroy();
+    }
+    logger.info("BRS " + VERSION + " stopped.");
+    LoggerConfigurator.shutdown();
+  }
+
+  public static PropertyService getPropertyService() {
+    return propertyService;
+  }
+
 }

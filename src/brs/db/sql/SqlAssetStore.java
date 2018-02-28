@@ -5,12 +5,11 @@ import brs.Burst;
 import brs.db.BurstIterator;
 import brs.db.BurstKey;
 import brs.db.store.AssetStore;
-import org.jooq.DSLContext;
-
+import brs.db.store.DerivedTableManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-
 import org.jooq.DSLContext;
+
 import static brs.schema.tables.Asset.ASSET;
 
 public class SqlAssetStore implements AssetStore {
@@ -23,7 +22,10 @@ public class SqlAssetStore implements AssetStore {
       }
 
     };
-  private final EntitySqlTable<Asset> assetTable = new EntitySqlTable<Asset>("asset", brs.schema.Tables.ASSET, assetDbKeyFactory) {
+  private final EntitySqlTable<Asset> assetTable;
+
+  public SqlAssetStore(DerivedTableManager derivedTableManager) {
+    assetTable = new EntitySqlTable<Asset>("asset", brs.schema.Tables.ASSET, assetDbKeyFactory, derivedTableManager) {
 
       @Override
       protected Asset load(DSLContext ctx, ResultSet rs) throws SQLException {
@@ -35,8 +37,9 @@ public class SqlAssetStore implements AssetStore {
         saveAsset(ctx, asset);
       }
     };
+  }
 
-  private void saveAsset(DSLContext ctx, Asset asset) throws SQLException {
+  private void saveAsset(DSLContext ctx, Asset asset) {
     ctx.insertInto(ASSET).
       set(ASSET.ID, asset.getId()).
       set(ASSET.ACCOUNT_ID, asset.getAccountId()).

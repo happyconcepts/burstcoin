@@ -2,6 +2,10 @@ package brs.http;
 
 
 import brs.*;
+import brs.services.AccountService;
+import brs.services.AliasService;
+import brs.services.ParameterService;
+import brs.services.TransactionService;
 import brs.util.Convert;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
@@ -9,26 +13,35 @@ import org.json.simple.JSONStreamAware;
 import javax.servlet.http.HttpServletRequest;
 
 import static brs.http.JSONResponses.*;
+import static brs.http.common.Parameters.ALIAS_NAME_PARAMETER;
+import static brs.http.common.Parameters.ALIAS_URI_PARAMETER;
+import static brs.http.common.ResultFields.ERROR_CODE_RESPONSE;
+import static brs.http.common.ResultFields.ERROR_DESCRIPTION_RESPONSE;
 
 public final class SetAlias extends CreateTransaction {
 
-  static final SetAlias instance = new SetAlias();
+  private final ParameterService parameterService;
+  private final Blockchain blockchain;
+  private final AliasService aliasService;
 
-  private SetAlias() {
-    super(new APITag[] {APITag.ALIASES, APITag.CREATE_TRANSACTION}, "aliasName", "aliasURI");
+  public SetAlias(ParameterService parameterService, Blockchain blockchain, AliasService aliasService, APITransactionManager apiTransactionManager) {
+    super(new APITag[] {APITag.ALIASES, APITag.CREATE_TRANSACTION}, apiTransactionManager, ALIAS_NAME_PARAMETER, ALIAS_URI_PARAMETER);
+    this.parameterService = parameterService;
+    this.blockchain = blockchain;
+    this.aliasService = aliasService;
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) throws BurstException {
-    String aliasName = Convert.emptyToNull(req.getParameter("aliasName"));
-    String aliasURI = Convert.nullToEmpty(req.getParameter("aliasURI"));
+    String aliasName = Convert.emptyToNull(req.getParameter(ALIAS_NAME_PARAMETER));
+    String aliasURI = Convert.nullToEmpty(req.getParameter(ALIAS_URI_PARAMETER));
 
     if (aliasName == null) {
       return MISSING_ALIAS_NAME;
     }
 
     aliasName = aliasName.trim();
-    if (aliasName.length() == 0 || aliasName.length() > Constants.MAX_ALIAS_LENGTH) {
+    if (aliasName.isEmpty() || aliasName.length() > Constants.MAX_ALIAS_LENGTH) {
       return INCORRECT_ALIAS_LENGTH;
     }
 
@@ -44,17 +57,17 @@ public final class SetAlias extends CreateTransaction {
       return INCORRECT_URI_LENGTH;
     }
 
-    Account account = ParameterParser.getSenderAccount(req);
+    Account account = parameterService.getSenderAccount(req);
 
-    Alias alias = Alias.getAlias(normalizedAlias);
+    Alias alias = aliasService.getAlias(normalizedAlias);
     if (alias != null && alias.getAccountId() != account.getId()) {
       JSONObject response = new JSONObject();
-      response.put("errorCode", 8);
-      response.put("errorDescription", "\"" + aliasName + "\" is already used");
+      response.put(ERROR_CODE_RESPONSE, 8);
+      response.put(ERROR_DESCRIPTION_RESPONSE, "\"" + aliasName + "\" is already used");
       return response;
     }
 
-    Attachment attachment = new Attachment.MessagingAliasAssignment(aliasName, aliasURI);
+    Attachment attachment = new Attachment.MessagingAliasAssignment(aliasName, aliasURI, blockchain.getHeight());
     return createTransaction(req, account, attachment);
 
   }

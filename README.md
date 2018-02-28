@@ -10,10 +10,14 @@
 The world's first HDD-mined cryptocurrency using an energy efficient
 and fair Proof-of-Capacity (PoC) consensus algorithm.
 
-This wallet version is developed and maintained by the PoC consortium (PoCC) and supports several database backends:
+This wallet version is developed and maintained by the PoC consortium
+(PoCC) and supports a multitude of database backends. The two builtin
+backends are:
 - MariaDB (recommended, but complex installation)
-- Firebird (2nd best choice)
 - H2 (for compatibility/migration purposes)
+
+Other DB backends are supported by the Burstcoin DB manager:
+https://github.com/PoC-Consortium/burstcoin-db-manager
 
 
 ### Software Installation
@@ -26,26 +30,27 @@ installation for you.
 
 #### Windows
 
-If you are not familiar with MariaDB we recommend you to go for
-Firebird, in which case the following data needs to be added to
-`conf/brs.properties`
+###### MariaDb
 
-```
-brs.dbUrl=jdbc:firebirdsql:embedded:burst.firebird.db
-brs.dbUsername=sysdba
-brs.dbPassword=
-```
-After that you can simply run `burst.cmd` and that should start your wallet.
+In the conf directory, copy brs-default.properties into a new file named brs.properties.
 
-You can get all additional commands available by running `burst.cmd help`
+Download and install MariaDB https://mariadb.com/downloads/mariadb-tx
+
+The MariaDb installation will ask to setup a password for the root user. 
+Add this password to the brs.properties file created above in the following section:
+```
+brs.dbUrl=jdbc:mariadb://localhost:3306/burstwallet
+brs.dbUsername=root
+brs.dbPassword=YOUR_PASSWORD
+```
+
+The MariaDB installation will also install HeidiSQL, a gui tool to administer MariaDb.
+Use it to connect to the newly created mariaDb server and create a new DB called 'burstwallet'. 
 
 #### Unix-like systems
 
 Please install Java 8 (JRE 1.8) manually and run it by using burst.sh
 You can get further information calling `burst.sh help`
-
-Please note: Firebird (embedded) needs some more work on macOS at the moment.
-All other supported databases should work as expected.
 
 A good HowTo for running the wallet on a mac can be found here
 https://www.reddit.com/r/burstcoin/comments/7lrdc1/guide_to_getting_the_poc_wallet_running_on_a_mac/
@@ -59,8 +64,8 @@ initialize your database with these statements:
 
 ```
 echo "CREATE DATABASE burstwallet; 
-      CREATE USER 'burstwallet'@'localhost' IDENTIFIED BY 'yourpassword';
-      GRANT ALL PRIVILEGES ON burstwallet.* TO 'burstwallet'@'localhost';" | mysql -uroot
+      CREATE USER 'brs_user'@'localhost' IDENTIFIED BY 'yourpassword';
+      GRANT ALL PRIVILEGES ON burstwallet.* TO 'brs_user'@'localhost';" | mysql -uroot
 mysql -uroot burstwallet < init-mysql.sql
 ```
 
@@ -70,7 +75,7 @@ Now you need to add the following stuff to your conf/brs.properties:
 
 ```
 brs.dbUrl=jdbc:mariadb://localhost:3306/burstwallet
-brs.dbUsername=burstwallet
+brs.dbUsername=brs_user
 brs.dbPassword=yourpassword
 ```
 
@@ -78,7 +83,6 @@ brs.dbPassword=yourpassword
 
 - Proof of Capacity - ASIC proof / Energy efficient mining
 - Fast sync. with multithread CPU or OpenCL/GPU (optional)
-- Even faster "Quicksync" (load/store DB dumps)
 - Turing-complete smart contracts, via Automated Transactions (AT) https://ciyam.org/at/at.html
 - Asset Exchange and Digital Goods Store
 - Advanced transactions: Escrow and Subscription
@@ -93,6 +97,10 @@ brs.dbPassword=yourpassword
 - Block reward starts at 10,000/block
 - Block Reward Decreases at 5% each month
 
+## Tools
+
+To get rid of scalability and performance we use JProfiler as our prefered <a href="https://www.ej-technologies.com/products/jprofiler/overview.html">Java Profiler</a>.
+
 ## Version History
 
 For a general overview of Burst history see https://burstwiki.org/wiki/History_of_Burst
@@ -105,9 +113,11 @@ For a general overview of Burst history see https://burstwiki.org/wiki/History_o
 ```
 For a detailed version history of wallets up to 1.2.9 see https://github.com/burst-team/burstcoin/releases
 
+Code quality statistics can be found on SonarCloud: https://sonarcloud.io/dashboard?id=burstcoin%3Aburstcoin
+
 ## Build
 
-Burstcoin can be build from source using maven or - preferably - via
+Burstcoin can be built from source using maven or - preferably - via
 the provided `burst.sh compile` script within this repository.
 
 ## Credits
@@ -129,7 +139,11 @@ base are not mentioned, however. In alphabetical order:
 * introduction of FirebirdDB to the list of supported DB backends, bugfixing, debugging
 * streamlining helper scripts (invocation, compilation)
 * work on macOS port, testing and release management
-* JOOQ migration
+* JOOQ migration and many more things
+
+@Brabantian
+* introduction of JUnit and Code Coverage reporting
+* lots of unit tests and refactoring work to make the code testable
 
 @BraindeadOne
 * providing a DB abstraction layer to allow for multiple DB backends
@@ -156,11 +170,11 @@ base are not mentioned, however. In alphabetical order:
 @Quibus DownloadCache
 
 @rico666
-* moved the wallet from Nxt to BRS/Burst namespace
+* moved the wallet from NRS/Nxt to BRS/Burst namespace
 * improvements and fixes to the documentation - revival of javadoc references
 * general code refactoring and styleguide unification (Google JAVA Styleguide)
 * removed obsolete/unused code - tens of thousands of LOCs
-* fixes and enhancements to the UI
+* fixes and enhancements to the UI, config streamlining also JS updates
 
 Other contributors
 

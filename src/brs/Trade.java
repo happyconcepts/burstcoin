@@ -1,69 +1,13 @@
 package brs;
 
-import brs.db.EntityTable;
-import brs.db.BurstIterator;
 import brs.db.BurstKey;
 import brs.util.Convert;
-import brs.util.Listener;
-import brs.util.Listeners;
-
 
 public class Trade {
 
   public enum Event {
     TRADE
   }
-
-  private static final Listeners<Trade,Event> listeners = new Listeners<>();
-
-  private static final BurstKey.LinkKeyFactory<Trade> tradeDbKeyFactory =
-      Burst.getStores().getTradeStore().getTradeDbKeyFactory();
-
-  private static final EntityTable<Trade> tradeTable = Burst.getStores().getTradeStore().getTradeTable();
-
-
-  public static BurstIterator<Trade> getAllTrades(int from, int to) {
-    return tradeTable.getAll(from, to);
-  }
-
-  public static int getCount() {
-    return tradeTable.getCount();
-  }
-
-  public static boolean addListener(Listener<Trade> listener, Event eventType) {
-    return listeners.addListener(listener, eventType);
-  }
-
-  public static boolean removeListener(Listener<Trade> listener, Event eventType) {
-    return listeners.removeListener(listener, eventType);
-  }
-
-  public static BurstIterator<Trade> getAssetTrades(long assetId, int from, int to) {
-    return Burst.getStores().getTradeStore().getAssetTrades(assetId, from, to);
-  }
-
-  public static BurstIterator<Trade> getAccountTrades(long accountId, int from, int to) {
-    return Burst.getStores().getTradeStore().getAssetTrades(accountId, from, to);
-  }
-
-  public static BurstIterator<Trade> getAccountAssetTrades(long accountId, long assetId, int from, int to) {
-    return Burst.getStores().getTradeStore().getAccountAssetTrades(accountId, assetId, from, to);
-
-  }
-
-  public static int getTradeCount(long assetId) {
-    return Burst.getStores().getTradeStore().getTradeCount(assetId);
-  }
-
-  static Trade addTrade(long assetId, Block block, Order.Ask askOrder, Order.Bid bidOrder) {
-    Trade trade = new Trade(assetId, block, askOrder, bidOrder);
-    tradeTable.insert(trade);
-    listeners.notify(trade, Event.TRADE);
-    return trade;
-  }
-
-  static void init() {}
-
 
   private final int timestamp;
   private final long assetId;
@@ -99,7 +43,8 @@ public class Trade {
     this.isBuy = askOrderHeight < bidOrderHeight || (askOrderHeight == bidOrderHeight && askOrderId < bidOrderId);
   }
 
-  private Trade(long assetId, Block block, Order.Ask askOrder, Order.Bid bidOrder) {
+  public Trade(BurstKey dbKey, long assetId, Block block, Order.Ask askOrder, Order.Bid bidOrder) {
+    this.dbKey = dbKey;
     this.blockId = block.getId();
     this.height = block.getHeight();
     this.assetId = assetId;
@@ -110,7 +55,6 @@ public class Trade {
     this.bidOrderHeight = bidOrder.getHeight();
     this.sellerId = askOrder.getAccountId();
     this.buyerId = bidOrder.getAccountId();
-    this.dbKey =  tradeDbKeyFactory.newKey(this.askOrderId, this.bidOrderId);
     this.quantityQNT = Math.min(askOrder.getQuantityQNT(), bidOrder.getQuantityQNT());
     this.isBuy = askOrderHeight < bidOrderHeight || (askOrderHeight == bidOrderHeight && askOrderId < bidOrderId);
     this.priceNQT = isBuy ? askOrder.getPriceNQT() : bidOrder.getPriceNQT();

@@ -1,9 +1,13 @@
 package brs.http;
 
+import static brs.http.common.ResultFields.TIME_RESPONSE;
+
 import brs.Block;
+import brs.Blockchain;
 import brs.BlockchainProcessor;
 import brs.Burst;
 import brs.peer.Peer;
+import brs.services.TimeService;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
 
@@ -11,10 +15,15 @@ import javax.servlet.http.HttpServletRequest;
 
 public final class GetBlockchainStatus extends APIServlet.APIRequestHandler {
 
-  static final GetBlockchainStatus instance = new GetBlockchainStatus();
+  private final BlockchainProcessor blockchainProcessor;
+  private final Blockchain blockchain;
+  private final TimeService timeService;
 
-  private GetBlockchainStatus() {
+  GetBlockchainStatus(BlockchainProcessor blockchainProcessor, Blockchain blockchain, TimeService timeService) {
     super(new APITag[] {APITag.BLOCKS, APITag.INFO});
+    this.blockchainProcessor = blockchainProcessor;
+    this.blockchain = blockchain;
+    this.timeService = timeService;
   }
 
   @Override
@@ -22,12 +31,11 @@ public final class GetBlockchainStatus extends APIServlet.APIRequestHandler {
     JSONObject response = new JSONObject();
     response.put("application", Burst.APPLICATION);
     response.put("version", Burst.VERSION);
-    response.put("time", Burst.getEpochTime());
-    Block lastBlock = Burst.getBlockchain().getLastBlock();
+    response.put(TIME_RESPONSE, timeService.getEpochTime());
+    Block lastBlock = blockchain.getLastBlock();
     response.put("lastBlock", lastBlock.getStringId());
     response.put("cumulativeDifficulty", lastBlock.getCumulativeDifficulty().toString());
     response.put("numberOfBlocks", lastBlock.getHeight() + 1);
-    BlockchainProcessor blockchainProcessor = Burst.getBlockchainProcessor();
     Peer lastBlockchainFeeder = blockchainProcessor.getLastBlockchainFeeder();
     response.put("lastBlockchainFeeder", lastBlockchainFeeder == null ? null : lastBlockchainFeeder.getAnnouncedAddress());
     response.put("lastBlockchainFeederHeight", blockchainProcessor.getLastBlockchainFeederHeight());

@@ -2,29 +2,27 @@ package brs.db.sql;
 
 import brs.db.BurstKey;
 import brs.db.ValuesTable;
-
+import brs.db.store.DerivedTableManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-
 import org.jooq.impl.TableImpl;
 import org.jooq.DSLContext;
 import org.jooq.SelectQuery;
 import org.jooq.UpdateQuery;
-
 
 public abstract class ValuesSqlTable<T,V> extends DerivedSqlTable implements ValuesTable<T, V> {
 
   private final boolean multiversion;
   protected final DbKey.Factory<T> dbKeyFactory;
 
-  protected ValuesSqlTable(String table, TableImpl<?> tableClass, DbKey.Factory<T> dbKeyFactory) {
-    this(table, tableClass, dbKeyFactory, false);
+  protected ValuesSqlTable(String table, TableImpl<?> tableClass, DbKey.Factory<T> dbKeyFactory, DerivedTableManager derivedTableManager) {
+    this(table, tableClass, dbKeyFactory, false, derivedTableManager);
   }
 
-  ValuesSqlTable(String table, TableImpl<?> tableClass, DbKey.Factory<T> dbKeyFactory, boolean multiversion) {
-    super(table, tableClass);
+  ValuesSqlTable(String table, TableImpl<?> tableClass, DbKey.Factory<T> dbKeyFactory, boolean multiversion, DerivedTableManager derivedTableManager) {
+    super(table, tableClass, derivedTableManager);
     this.dbKeyFactory = dbKeyFactory;
     this.multiversion = multiversion;
   }
@@ -43,22 +41,19 @@ public abstract class ValuesSqlTable<T,V> extends DerivedSqlTable implements Val
         return values;
       }
     }
-    try ( DSLContext ctx = Db.getDSLContext() ) {
-      SelectQuery query = ctx.selectQuery();
-      query.addFrom(tableClass);
-      query.addConditions(dbKey.getPKConditions(tableClass));
-      if ( multiversion ) {
-        query.addConditions(tableClass.field("latest", int.class).isTrue());
-      }
-      query.addOrderBy(tableClass.field("db_id").desc());
-      values = get(ctx, query.fetchResultSet());
-      if (Db.isInTransaction()) {
-        Db.getCache(table).put(dbKey, values);
-      }
-      return values;
-    } catch (SQLException e) {
-      throw new RuntimeException(e.toString(), e);
+    DSLContext ctx = Db.getDSLContext();
+    SelectQuery query = ctx.selectQuery();
+    query.addFrom(tableClass);
+    query.addConditions(dbKey.getPKConditions(tableClass));
+    if ( multiversion ) {
+      query.addConditions(tableClass.field("latest", Boolean.class).isTrue());
     }
+    query.addOrderBy(tableClass.field("db_id").desc());
+    values = get(ctx, query.fetchResultSet());
+    if (Db.isInTransaction()) {
+      Db.getCache(table).put(dbKey, values);
+    }
+    return values;
   }
 
   private List<V> get(DSLContext ctx, ResultSet rs) {

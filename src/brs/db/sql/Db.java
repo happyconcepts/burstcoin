@@ -1,25 +1,18 @@
 package brs.db.sql;
 
-import com.github.gquintana.metrics.sql.MetricsSql;
+import brs.Burst;
+import brs.common.Props;
+import brs.db.cache.DBCacheManagerImpl;
+import brs.services.PropertyService;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import com.zaxxer.hikari.pool.HikariProxyConnection;
-import com.zaxxer.hikari.pool.ProxyConnection;
-
 import brs.Constants;
-import brs.Burst;
 import brs.db.firebird.FirebirdDbs;
+import brs.db.derby.DerbyDbs;
 import brs.db.h2.H2Dbs;
 import brs.db.mariadb.MariadbDbs;
 import brs.db.store.Dbs;
-
-import com.google.common.base.Predicate;
-import org.reflections.ReflectionUtils;
-import java.lang.reflect.Field;
-
-import org.firebirdsql.jdbc.FBConnection;
 import org.firebirdsql.management.FBManager;
-import org.firebirdsql.gds.TransactionParameterBuffer;
 import org.firebirdsql.gds.impl.GDSType;
 
 import org.slf4j.Logger;
@@ -31,8 +24,10 @@ import java.io.File;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.PreparedStatement;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import org.jooq.impl.DSL;
 import org.jooq.DSLContext;
@@ -43,28 +38,33 @@ public final class Db {
 
   private static final Logger logger = LoggerFactory.getLogger(Db.class);
 
-  private static final HikariDataSource cp;
+  private static HikariDataSource cp;
+  private static SQLDialect dialect;
   private static final ThreadLocal<DbConnection> localConnection = new ThreadLocal<>();
   private static final ThreadLocal<Map<String, Map<DbKey, Object>>> transactionCaches = new ThreadLocal<>();
   private static final ThreadLocal<Map<String, Map<DbKey, Object>>> transactionBatches = new ThreadLocal<>();
-  private static final TYPE DATABASE_TYPE;
-  private static final boolean enableSqlMetrics = Burst.getBooleanProperty("brs.enableSqlMetrics", false);
+  private static TYPE DATABASE_TYPE;
 
+  private static DBCacheManagerImpl dbCacheManager;
 
-  static {
+  public static void init(PropertyService propertyService, DBCacheManagerImpl dbCacheManager) {
+    Db.dbCacheManager = dbCacheManager;
+
     String dbUrl;
     String dbUsername;
     String dbPassword;
 
     if (Constants.isTestnet) {
-      dbUrl = Burst.getStringProperty("brs.testDbUrl");
-      dbUsername = Burst.getStringProperty("brs.testDbUsername");
-      dbPassword = Burst.getStringProperty("brs.testDbPassword");
-    } else {
-      dbUrl = Burst.getStringProperty("brs.dbUrl");
-      dbUsername = Burst.getStringProperty("brs.dbUsername");
-      dbPassword = Burst.getStringProperty("brs.dbPassword");
+      dbUrl = propertyService.getString(Props.DEV_DB_URL);
+      dbUsername = propertyService.getString(Props.DEV_DB_USERNAME);
+      dbPassword = propertyService.getString(Props.DEV_DB_PASSWORD);
     }
+    else {
+      dbUrl = propertyService.getString(Props.DB_URL);
+      dbUsername = propertyService.getString(Props.DB_USERNAME);
+      dbPassword = propertyService.getString(Props.DB_PASSWORD);
+    }
+    dialect = org.jooq.tools.jdbc.JDBCUtils.dialect(dbUrl);
 
     logger.debug("Database jdbc url set to: " + dbUrl);
     try {
@@ -76,7 +76,7 @@ public final class Db {
       if (dbPassword != null)
         config.setPassword(dbPassword);
 
-      config.setMaximumPoolSize(Burst.getIntProperty("brs.dbMaximumPoolSize"));
+      config.setMaximumPoolSize(propertyService.getInt(Props.DB_CONNECTIONS));
 
       switch (DATABASE_TYPE) {
         case MARIADB:
@@ -95,7 +95,7 @@ public final class Db {
           if ( jnaPath == null || jnaPath.isEmpty() ) {
             Path path = Paths.get(
                                   "lib/firebird/"
-                                  + ( System.getProperty("sun.arch.data.model") == "32" ? "32" : "64" )
+                                  + (Objects.equals(System.getProperty("sun.arch.data.model"), "32") ? "32" : "64" )
                                   + "/"
                                   ).toAbsolutePath();
             System.setProperty("jna.library.path", path.toString());
@@ -103,8 +103,6 @@ public final class Db {
           }
           Class.forName("org.firebirdsql.jdbc.FBDriver");
 
-          config.setAutoCommit(true);
-          config.addDataSourceProperty("encoding", "UTF8");
           config.addDataSourceProperty("cachePrepStmts", "true");
           config.addDataSourceProperty("prepStmtCacheSize", "250");
           config.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
@@ -126,12 +124,19 @@ public final class Db {
           }
 
           break;
+        case DERBY:
+          Class.forName("org.apache.derby.jdbc.EmbeddedDriver");
+          config.setAutoCommit(true);
+          config.addDataSourceProperty("encoding", "UTF8");
+          config.addDataSourceProperty("useUnicode", "true");
+          break;
         case H2:
           Class.forName("org.h2.Driver");
           config.setAutoCommit(true);
           config.addDataSourceProperty("cachePrepStmts", "true");
           config.addDataSourceProperty("prepStmtCacheSize", "250");
           config.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
+          config.addDataSourceProperty("DATABASE_TO_UPPER", "false");
           break;
       }
       // config.setLeakDetectionThreshold(2000);
@@ -139,10 +144,10 @@ public final class Db {
       cp = new HikariDataSource(config);
 
       if (DATABASE_TYPE == TYPE.H2) {
-        int defaultLockTimeout = Burst.getIntProperty("brs.dbDefaultLockTimeout") * 1000;
+        int defaultLockTimeout = propertyService.getInt(Props.DB_LOCK_TIMEOUT) * 1000;
         try (Connection con = cp.getConnection();
-             Statement stmt = con.createStatement()) {
-          stmt.executeUpdate("SET DEFAULT_LOCK_TIMEOUT " + defaultLockTimeout);
+             PreparedStatement stmt = con.prepareStatement("SET DEFAULT_LOCK_TIMEOUT ?")) {
+          // stmt.executeUpdate(defaultLockTimeout);
         } catch (SQLException e) {
           throw new RuntimeException(e.toString(), e);
         }
@@ -158,13 +163,16 @@ public final class Db {
   } // never
 
   public static Dbs getDbsByDatabaseType(){
-    switch (Db.getDatabaseType()) 
+    switch (Db.getDatabaseType())
     {
       case MARIADB:
         logger.info("Using mariadb Backend");
         return new MariadbDbs();
+      case DERBY:
+        logger.info("Using derby Backend");
+        return new DerbyDbs();
       case FIREBIRD:
-        logger.info("Using Firebird Backend");
+        logger.info("Using firebird Backend");
         return new FirebirdDbs();
       case H2:
         logger.info("Using h2 Backend");
@@ -173,7 +181,7 @@ public final class Db {
         throw new RuntimeException("Error initializing wallet: Unknown database type");
     }
   }
-  
+
   public static void analyzeTables() {
     if (DATABASE_TYPE == TYPE.H2) {
       try (Connection con = cp.getConnection();
@@ -187,22 +195,25 @@ public final class Db {
 
   public static void shutdown() {
     if (DATABASE_TYPE == TYPE.H2) {
-      logger.info("Compacting database - this may take a while");
-      try ( Connection con = cp.getConnection(); Statement stmt = con.createStatement(); ) {
-        stmt.execute("SHUTDOWN COMPACT");
+      try ( Connection con = cp.getConnection(); Statement stmt = con.createStatement() ) {
+        // COMPACT is not giving good result.
+        if(Burst.getPropertyService().getBoolean(Props.DB_H2_DEFRAG_ON_SHUTDOWN)) {
+          stmt.execute("SHUTDOWN DEFRAG");
+        } else {
+          stmt.execute("SHUTDOWN");
+        }
       }
       catch (SQLException e) {
         logger.info(e.toString(), e);
       }
       finally {
-        logger.info("Database shutdown completed");
+        logger.info("Database shutdown completed.");
       }
     }
   }
 
   private static Connection getPooledConnection() throws SQLException {
-    Connection con = cp.getConnection();
-    return con;
+      return cp.getConnection();
   }
 
   public static Connection getConnection() throws SQLException {
@@ -213,16 +224,13 @@ public final class Db {
     }
     con = getPooledConnection();
     con.setAutoCommit(true);
-    if (enableSqlMetrics)
-      return new MeteredDbConnection(con);
-    else
-      return new DbConnection(con);
+
+    return new DbConnection(con);
   }
 
-  public static final DSLContext getDSLContext() throws SQLException {
-    Connection con     = localConnection.get();
-    SQLDialect dialect =  DATABASE_TYPE == TYPE.H2 ? SQLDialect.H2 : DATABASE_TYPE == TYPE.FIREBIRD ? SQLDialect.FIREBIRD : SQLDialect.MARIADB;
-    Settings settings  = new Settings();
+  public static final DSLContext getDSLContext() {
+    Connection con    = localConnection.get();
+    Settings settings = new Settings();
     settings.setRenderSchema(Boolean.FALSE);
 
     if ( con == null ) {
@@ -241,24 +249,16 @@ public final class Db {
     if (!isInTransaction()) {
       throw new IllegalStateException("Not in transaction");
     }
-    Map<DbKey, Object> cacheMap = transactionCaches.get().get(tableName);
-    if (cacheMap == null) {
-      cacheMap = new HashMap<>();
-      transactionCaches.get().put(tableName, cacheMap);
-    }
-    return cacheMap;
+      Map<DbKey, Object> cacheMap = transactionCaches.get().computeIfAbsent(tableName, k -> new HashMap<>());
+      return cacheMap;
   }
 
   static Map<DbKey, Object> getBatch(String tableName) {
     if (!isInTransaction()) {
       throw new IllegalStateException("Not in transaction");
     }
-    Map<DbKey, Object> batchMap = transactionBatches.get().get(tableName);
-    if (batchMap == null) {
-      batchMap = new HashMap<>();
-      transactionBatches.get().put(tableName, batchMap);
-    }
-    return batchMap;
+      Map<DbKey, Object> batchMap = transactionBatches.get().computeIfAbsent(tableName, k -> new HashMap<>());
+      return batchMap;
   }
 
   public static boolean isInTransaction() {
@@ -273,10 +273,7 @@ public final class Db {
       Connection con = cp.getConnection();
       con.setAutoCommit(false);
 
-      if (enableSqlMetrics)
-        con = new MeteredDbConnection(con);
-      else
-        con = new DbConnection(con);
+      con = new DbConnection(con);
 
       localConnection.set((DbConnection) con);
       transactionCaches.set(new HashMap<>());
@@ -315,6 +312,7 @@ public final class Db {
     }
     transactionCaches.get().clear();
     transactionBatches.get().clear();
+    dbCacheManager.flushCache();
   }
 
   public static void endTransaction() {
@@ -337,23 +335,22 @@ public final class Db {
   public enum TYPE {
     H2,
     MARIADB,
-    FIREBIRD;
+    FIREBIRD,
+    DERBY,
+    SQLITE;
 
     public static TYPE getTypeFromJdbcUrl(String jdbcUrl) {
       if (jdbcUrl.contains("jdbc:mysql") || jdbcUrl.contains("jdbc:mariadb"))
         return MARIADB;
+      if (jdbcUrl.contains("jdbc:derby"))
+        return DERBY;
+      if (jdbcUrl.contains("jdbc:sqlite"))
+        return SQLITE;
       if (jdbcUrl.contains("jdbc:firebirdsql"))
         return FIREBIRD;
       if (jdbcUrl.contains("jdbc:h2"))
         return H2;
       throw new IllegalArgumentException("Unable to determine database type from this: '" + jdbcUrl + "'");
-    }
-  }
-
-  private static class MeteredDbConnection extends DbConnection {
-
-    private MeteredDbConnection(Connection con) {
-      super(MetricsSql.forRegistry(Burst.metrics).wrap(con));
     }
   }
 
@@ -364,7 +361,7 @@ public final class Db {
     }
 
     @Override
-    public void setAutoCommit(boolean autoCommit) throws SQLException {
+    public void setAutoCommit(boolean autoCommit) {
       throw new UnsupportedOperationException("Use Db.beginTransaction() to start a new transaction");
     }
 

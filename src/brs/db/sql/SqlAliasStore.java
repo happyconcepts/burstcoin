@@ -6,21 +6,16 @@ import brs.db.BurstIterator;
 import brs.db.BurstKey;
 import brs.db.VersionedEntityTable;
 import brs.db.store.AliasStore;
-
+import brs.db.store.DerivedTableManager;
 import java.util.ArrayList;
 import java.util.List;
-
-import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-
 import org.jooq.DSLContext;
+import org.jooq.SortField;
 
 import static brs.schema.Tables.ALIAS;
 import static brs.schema.Tables.ALIAS_OFFER;
-
-import org.jooq.DSLContext;
-import org.jooq.SortField;
 
 public class SqlAliasStore implements AliasStore {
 
@@ -30,6 +25,39 @@ public class SqlAliasStore implements AliasStore {
         return offer.dbKey;
       }
     };
+
+  public SqlAliasStore(DerivedTableManager derivedTableManager) {
+    offerTable = new VersionedEntitySqlTable<Alias.Offer>("alias_offer", ALIAS_OFFER, offerDbKeyFactory, derivedTableManager) {
+      @Override
+      protected Alias.Offer load(DSLContext ctx, ResultSet rs) throws SQLException {
+        return new SqlOffer(rs);
+      }
+
+      @Override
+      protected void save(DSLContext ctx, Alias.Offer offer) throws SQLException {
+        saveOffer(offer);
+      }
+    };
+
+    aliasTable = new VersionedEntitySqlTable<Alias>("alias", brs.schema.Tables.ALIAS, aliasDbKeyFactory, derivedTableManager) {
+      @Override
+      protected Alias load(DSLContext ctx, ResultSet rs) throws SQLException {
+        return new SqlAlias(rs);
+      }
+
+      @Override
+      protected void save(DSLContext ctx, Alias alias) throws SQLException {
+        saveAlias(ctx, alias);
+      }
+
+      @Override
+      protected List<SortField> defaultSort() {
+        List<SortField> sort = new ArrayList<>();
+        sort.add(tableClass.field("alias_name_lower", String.class).asc());
+        return sort;
+      }
+    };
+  }
 
   @Override
   public BurstKey.LongKeyFactory<Alias.Offer> getOfferDbKeyFactory() {
@@ -71,17 +99,7 @@ public class SqlAliasStore implements AliasStore {
     }
   }
 
-  private final VersionedEntityTable<Alias.Offer> offerTable = new VersionedEntitySqlTable<Alias.Offer>("alias_offer", ALIAS_OFFER, offerDbKeyFactory) {
-      @Override
-      protected Alias.Offer load(DSLContext ctx, ResultSet rs) throws SQLException {
-        return new SqlOffer(rs);
-      }
-
-      @Override
-      protected void save(DSLContext ctx, Alias.Offer offer) throws SQLException {
-        saveOffer(offer);
-      }
-    };
+  private final VersionedEntityTable<Alias.Offer> offerTable;
 
   @Override
   public VersionedEntityTable<Alias.Offer> getOfferTable() {
@@ -101,34 +119,18 @@ public class SqlAliasStore implements AliasStore {
     }
   }
 
-  protected void saveAlias(DSLContext ctx, Alias alias) throws SQLException {
+  protected void saveAlias(DSLContext ctx, Alias alias) {
     ctx.insertInto(ALIAS).
       set(ALIAS.ID, alias.getId()).
       set(ALIAS.ACCOUNT_ID, alias.getAccountId()).
       set(ALIAS.ALIAS_NAME, alias.getAliasName()).
+      set(ALIAS.ALIAS_NAME_LOWER, alias.getAliasName().toLowerCase()).
       set(ALIAS.ALIAS_URI, alias.getAliasURI()).
       set(ALIAS.TIMESTAMP, alias.getTimestamp()).
       set(ALIAS.HEIGHT, Burst.getBlockchain().getHeight()).execute();
   }
 
-  private final VersionedEntityTable<Alias> aliasTable = new VersionedEntitySqlTable<Alias>("alias", brs.schema.Tables.ALIAS, aliasDbKeyFactory) {
-      @Override
-      protected Alias load(DSLContext ctx, ResultSet rs) throws SQLException {
-        return new SqlAlias(rs);
-      }
-
-      @Override
-      protected void save(DSLContext ctx, Alias alias) throws SQLException {
-        saveAlias(ctx, alias);
-      }
-
-      @Override
-      protected List<SortField> defaultSort() {
-        List<SortField> sort = new ArrayList<>();
-        sort.add(tableClass.field("alias_name_lower", String.class).asc());
-        return sort;
-      }
-    };
+  private final VersionedEntityTable<Alias> aliasTable;
 
   @Override
   public BurstIterator<Alias> getAliasesByOwner(long accountId, int from, int to) {

@@ -8,6 +8,7 @@ import org.json.simple.JSONStreamAware;
 import javax.servlet.http.HttpServletRequest;
 
 import static brs.http.JSONResponses.*;
+import static brs.http.common.Parameters.SECRET_PHRASE_PARAMETER;
 
 
 public final class MarkHost extends APIServlet.APIRequestHandler {
@@ -15,13 +16,13 @@ public final class MarkHost extends APIServlet.APIRequestHandler {
   static final MarkHost instance = new MarkHost();
 
   private MarkHost() {
-    super(new APITag[] {APITag.TOKENS}, "secretPhrase", "host", "weight", "date");
+    super(new APITag[] {APITag.TOKENS}, SECRET_PHRASE_PARAMETER, "host", "weight", "date");
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) {
 
-    String secretPhrase = req.getParameter("secretPhrase");
+    String secretPhrase = req.getParameter(SECRET_PHRASE_PARAMETER);
     String host = req.getParameter("host");
     String weightValue = req.getParameter("weight");
     String dateValue = req.getParameter("date");
@@ -42,7 +43,7 @@ public final class MarkHost extends APIServlet.APIRequestHandler {
     int weight;
     try {
       weight = Integer.parseInt(weightValue);
-      if (weight <= 0 || weight > Constants.MAX_BALANCE_NXT) {
+      if (weight <= 0 || weight > Constants.MAX_BALANCE_BURST) {
         return INCORRECT_WEIGHT;
       }
     } catch (NumberFormatException e) {

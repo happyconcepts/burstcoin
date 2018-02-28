@@ -1,15 +1,14 @@
 package brs;
 
-import brs.db.DerivedTable;
 import brs.peer.Peer;
 import brs.util.Observable;
 import org.json.simple.JSONObject;
 
 import java.util.List;
 
-public interface BlockchainProcessor extends Observable<Block,BlockchainProcessor.Event> {
+public interface BlockchainProcessor extends Observable<Block, BlockchainProcessor.Event> {
 
-  public enum Event {
+  enum Event {
     BLOCK_PUSHED, BLOCK_POPPED, BLOCK_GENERATED, BLOCK_SCANNED,
     RESCAN_BEGIN, RESCAN_END,
     BEFORE_BLOCK_ACCEPT,
@@ -28,6 +27,9 @@ public interface BlockchainProcessor extends Observable<Block,BlockchainProcesso
 
   void fullReset();
 
+  void generateBlock(String secretPhrase, byte[] publicKey, Long nonce)
+      throws BlockNotAcceptedException;
+
   void scan(int height);
 
   void forceScanAtStart();
@@ -36,10 +38,7 @@ public interface BlockchainProcessor extends Observable<Block,BlockchainProcesso
 
   List<? extends Block> popOffTo(int height);
 
-  void registerDerivedTable(DerivedTable table);
-
-
-  public static class BlockNotAcceptedException extends BurstException {
+  class BlockNotAcceptedException extends BurstException {
 
     BlockNotAcceptedException(String message) {
       super(message);
@@ -47,11 +46,11 @@ public interface BlockchainProcessor extends Observable<Block,BlockchainProcesso
 
   }
 
-  public static class TransactionNotAcceptedException extends BlockNotAcceptedException {
+  class TransactionNotAcceptedException extends BlockNotAcceptedException {
 
-    private final TransactionImpl transaction;
+    private final Transaction transaction;
 
-    TransactionNotAcceptedException(String message, TransactionImpl transaction) {
+    public TransactionNotAcceptedException(String message, Transaction transaction) {
       super(message  + " transaction: " + transaction.getJSONObject().toJSONString());
       this.transaction = transaction;
     }
@@ -62,9 +61,9 @@ public interface BlockchainProcessor extends Observable<Block,BlockchainProcesso
 
   }
 
-  public static class BlockOutOfOrderException extends BlockNotAcceptedException {
+  class BlockOutOfOrderException extends BlockNotAcceptedException {
 
-    BlockOutOfOrderException(String message) {
+    public BlockOutOfOrderException(String message) {
       super(message);
     }
 

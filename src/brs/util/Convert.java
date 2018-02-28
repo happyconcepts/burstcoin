@@ -116,7 +116,7 @@ public final class Convert {
   }
 
   public static String emptyToNull(String s) {
-    return s == null || s.length() == 0 ? null : s;
+    return s == null || s.isEmpty() ? null : s;
   }
 
   public static String nullToEmpty(String s) {
@@ -165,7 +165,7 @@ public final class Convert {
   }
 
   public static long parseNXT(String nxt) {
-    return parseStringFraction(nxt, 8, Constants.MAX_BALANCE_NXT);
+    return parseStringFraction(nxt, 8, Constants.MAX_BALANCE_BURST);
   }
 
   private static long parseStringFraction(String value, int decimals, long maxValue) {

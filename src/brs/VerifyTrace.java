@@ -50,16 +50,8 @@ public final class VerifyTrace {
           valueMap.put(headers[i], values[i]);
         }
         String accountId = valueMap.get("account");
-        Map<String,Long> accountTotals = totals.get(accountId);
-        if (accountTotals == null) {
-          accountTotals = new HashMap<>();
-          totals.put(accountId, accountTotals);
-        }
-        Map<String,Map<String,Long>> accountAssetMap = accountAssetTotals.get(accountId);
-        if (accountAssetMap == null) {
-          accountAssetMap = new HashMap<>();
-          accountAssetTotals.put(accountId, accountAssetMap);
-        }
+        Map<String, Long> accountTotals = totals.computeIfAbsent(accountId, k -> new HashMap<>());
+        Map<String, Map<String, Long>> accountAssetMap = accountAssetTotals.computeIfAbsent(accountId, k -> new HashMap<>());
         if ("asset issuance".equals(valueMap.get("event"))) {
           String assetId = valueMap.get("asset");
           issuedAssetQuantities.put(assetId, Long.parseLong(valueMap.get("asset quantity")));
@@ -77,19 +69,11 @@ public final class VerifyTrace {
             accountTotals.put(header, Convert.safeAdd(previousValue, Long.parseLong(value)));
           } else if (isAssetQuantity(header)) {
             String assetId = valueMap.get("asset");
-            Map<String,Long> assetTotals = accountAssetMap.get(assetId);
-            if (assetTotals == null) {
-              assetTotals = new HashMap<>();
-              accountAssetMap.put(assetId, assetTotals);
-            }
+            Map<String, Long> assetTotals = accountAssetMap.computeIfAbsent(assetId, k -> new HashMap<>());
             assetTotals.put(header, Long.parseLong(value));
           } else if (isDeltaAssetQuantity(header)) {
             String assetId = valueMap.get("asset");
-            Map<String,Long> assetTotals = accountAssetMap.get(assetId);
-            if (assetTotals == null) {
-              assetTotals = new HashMap<>();
-              accountAssetMap.put(assetId, assetTotals);
-            }
+            Map<String, Long> assetTotals = accountAssetMap.computeIfAbsent(assetId, k -> new HashMap<>());
             long previousValue = nullToZero(assetTotals.get(header));
             assetTotals.put(header, Convert.safeAdd(previousValue, Long.parseLong(value)));
           }
@@ -101,9 +85,7 @@ public final class VerifyTrace {
         String accountId = mapEntry.getKey();
         Map<String,Long> accountValues = mapEntry.getValue();
         System.out.println("account: " + accountId);
-        for (String balanceHeader : balanceHeaders) {
-          System.out.println(balanceHeader + ": " + nullToZero(accountValues.get(balanceHeader)));
-        }
+        balanceHeaders.forEach(balanceHeader -> System.out.println(balanceHeader + ": " + nullToZero(accountValues.get(balanceHeader))));
         System.out.println("totals:");
         long totalDelta = 0;
         for (String header : deltaHeaders) {
@@ -118,40 +100,35 @@ public final class VerifyTrace {
           failed.add(accountId);
         }
         Map<String,Map<String,Long>> accountAssetMap = accountAssetTotals.get(accountId);
-        for (Map.Entry<String,Map<String,Long>> assetMapEntry : accountAssetMap.entrySet()) {
-          String assetId = assetMapEntry.getKey();
-          Map<String,Long> assetValues = assetMapEntry.getValue();
+        accountAssetMap.forEach((assetId, assetValues) -> {
           System.out.println("asset: " + assetId);
-          for (Map.Entry<String,Long> assetValueEntry : assetValues.entrySet()) {
-            System.out.println(assetValueEntry.getKey() + ": " + assetValueEntry.getValue());
-          }
+          assetValues.forEach((key, value) -> System.out.println(key + ": " + value));
           long totalAssetDelta = 0;
           for (String header : deltaAssetQuantityHeaders) {
             long delta = nullToZero(assetValues.get(header));
             totalAssetDelta = Convert.safeAdd(totalAssetDelta, delta);
           }
           System.out.println("total confirmed asset quantity change: " + totalAssetDelta);
-          long assetBalance= assetValues.get("asset balance");
+          long assetBalance = assetValues.get("asset balance");
           if (assetBalance != totalAssetDelta) {
             System.out.println("ERROR: asset balance doesn't match total asset quantity change!!!");
             failed.add(accountId);
           }
           long previousAssetQuantity = nullToZero(accountAssetQuantities.get(assetId));
           accountAssetQuantities.put(assetId, Convert.safeAdd(previousAssetQuantity, assetBalance));
-        }
+        });
         System.out.println();
       }
       Set<String> failedAssets = new HashSet<>();
-      for (Map.Entry<String,Long> assetEntry : issuedAssetQuantities.entrySet()) {
-        String assetId = assetEntry.getKey();
-        long issuedAssetQuantity = assetEntry.getValue();
+      issuedAssetQuantities.forEach((assetId, value) -> {
+        long issuedAssetQuantity = value;
         if (issuedAssetQuantity != nullToZero(accountAssetQuantities.get(assetId))) {
           System.out.println("ERROR: asset " + assetId + " balances don't match, issued: "
-                             + issuedAssetQuantity
-                             + ", total of account balances: " + accountAssetQuantities.get(assetId));
+                  + issuedAssetQuantity
+                  + ", total of account balances: " + accountAssetQuantities.get(assetId));
           failedAssets.add(assetId);
         }
-      }
+      });
       if (failed.size() > 0) {
         System.out.println("ERROR: " + failed.size() + " accounts have incorrect balances");
         System.out.println(failed);

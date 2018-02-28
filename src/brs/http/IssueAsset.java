@@ -1,30 +1,46 @@
 package brs.http;
 
+import static brs.http.JSONResponses.INCORRECT_ASSET_DESCRIPTION;
+import static brs.http.JSONResponses.INCORRECT_ASSET_NAME;
+import static brs.http.JSONResponses.INCORRECT_ASSET_NAME_LENGTH;
+import static brs.http.JSONResponses.INCORRECT_DECIMALS;
+import static brs.http.JSONResponses.MISSING_NAME;
+import static brs.http.common.Parameters.DECIMALS_PARAMETER;
+import static brs.http.common.Parameters.DESCRIPTION_PARAMETER;
+import static brs.http.common.Parameters.NAME_PARAMETER;
+import static brs.http.common.Parameters.QUANTITY_NQT_PARAMETER;
+
 import brs.Account;
 import brs.Attachment;
-import brs.Constants;
+import brs.Blockchain;
 import brs.BurstException;
+import brs.Constants;
+import brs.TransactionProcessor;
+import brs.services.AccountService;
+import brs.services.ParameterService;
+import brs.services.TransactionService;
 import brs.util.Convert;
-import org.json.simple.JSONStreamAware;
-
 import javax.servlet.http.HttpServletRequest;
-
-import static brs.http.JSONResponses.*;
+import org.json.simple.JSONStreamAware;
 
 public final class IssueAsset extends CreateTransaction {
 
-  static final IssueAsset instance = new IssueAsset();
+  private final ParameterService parameterService;
+  private final Blockchain blockchain;
 
-  private IssueAsset() {
-    super(new APITag[] {APITag.AE, APITag.CREATE_TRANSACTION}, "name", "description", "quantityQNT", "decimals");
+  IssueAsset(ParameterService parameterService, Blockchain blockchain, APITransactionManager apiTransactionManager) {
+    super(new APITag[]{APITag.AE, APITag.CREATE_TRANSACTION}, apiTransactionManager,
+        NAME_PARAMETER, DESCRIPTION_PARAMETER, QUANTITY_NQT_PARAMETER, DECIMALS_PARAMETER);
+    this.parameterService = parameterService;
+    this.blockchain = blockchain;
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) throws BurstException {
 
-    String name = req.getParameter("name");
-    String description = req.getParameter("description");
-    String decimalsValue = Convert.emptyToNull(req.getParameter("decimals"));
+    String name = req.getParameter(NAME_PARAMETER);
+    String description = req.getParameter(DESCRIPTION_PARAMETER);
+    String decimalsValue = Convert.emptyToNull(req.getParameter(DECIMALS_PARAMETER));
 
     if (name == null) {
       return MISSING_NAME;
@@ -58,8 +74,8 @@ public final class IssueAsset extends CreateTransaction {
     }
 
     long quantityQNT = ParameterParser.getQuantityQNT(req);
-    Account account = ParameterParser.getSenderAccount(req);
-    Attachment attachment = new Attachment.ColoredCoinsAssetIssuance(name, description, quantityQNT, decimals);
+    Account account = parameterService.getSenderAccount(req);
+    Attachment attachment = new Attachment.ColoredCoinsAssetIssuance(name, description, quantityQNT, decimals, blockchain.getHeight());
     return createTransaction(req, account, attachment);
 
   }

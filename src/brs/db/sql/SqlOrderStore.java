@@ -4,20 +4,16 @@ import brs.Order;
 import brs.db.BurstIterator;
 import brs.db.BurstKey;
 import brs.db.VersionedEntityTable;
+import brs.db.store.DerivedTableManager;
 import brs.db.store.OrderStore;
-
 import java.util.ArrayList;
 import java.util.List;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
-
 import org.jooq.impl.TableImpl;
 import org.jooq.DSLContext;
 import org.jooq.SortField;
 import org.jooq.SelectQuery;
-import brs.schema.Tables.*;
-import org.jooq.Record;
 import org.jooq.Field;
 
 public class SqlOrderStore implements OrderStore {
@@ -29,7 +25,10 @@ public class SqlOrderStore implements OrderStore {
       }
 
     };
-  protected VersionedEntityTable<Order.Ask> askOrderTable = new VersionedEntitySqlTable<Order.Ask>("ask_order", brs.schema.Tables.ASK_ORDER, askOrderDbKeyFactory) {
+  protected VersionedEntityTable<Order.Ask> askOrderTable;
+
+  public SqlOrderStore(DerivedTableManager derivedTableManager) {
+    askOrderTable = new VersionedEntitySqlTable<Order.Ask>("ask_order", brs.schema.Tables.ASK_ORDER, askOrderDbKeyFactory, derivedTableManager) {
       @Override
       protected Order.Ask load(DSLContext ctx, ResultSet rs) throws SQLException {
         return new SqlAsk(rs);
@@ -47,15 +46,8 @@ public class SqlOrderStore implements OrderStore {
         return sort;
       }
     };
-  private DbKey.LongKeyFactory<Order.Bid> bidOrderDbKeyFactory = new DbKey.LongKeyFactory<Order.Bid>("id") {
 
-      @Override
-      public BurstKey newKey(Order.Bid bid) {
-        return bid.dbKey;
-      }
-
-    };
-  protected VersionedEntityTable<Order.Bid> bidOrderTable = new VersionedEntitySqlTable<Order.Bid>("bid_order", brs.schema.Tables.BID_ORDER, bidOrderDbKeyFactory) {
+    bidOrderTable = new VersionedEntitySqlTable<Order.Bid>("bid_order", brs.schema.Tables.BID_ORDER, bidOrderDbKeyFactory, derivedTableManager) {
 
       @Override
       protected Order.Bid load(DSLContext ctx, ResultSet rs) throws SQLException {
@@ -75,6 +67,18 @@ public class SqlOrderStore implements OrderStore {
       }
 
     };
+
+  }
+
+  private DbKey.LongKeyFactory<Order.Bid> bidOrderDbKeyFactory = new DbKey.LongKeyFactory<Order.Bid>("id") {
+
+      @Override
+      public BurstKey newKey(Order.Bid bid) {
+        return bid.dbKey;
+      }
+
+    };
+  protected VersionedEntityTable<Order.Bid> bidOrderTable;
 
   @Override
   public VersionedEntityTable<Order.Bid> getBidOrderTable() {
@@ -103,19 +107,16 @@ public class SqlOrderStore implements OrderStore {
 
   @Override
   public Order.Ask getNextOrder(long assetId) {
-    try ( DSLContext ctx = Db.getDSLContext() ) {
-      SelectQuery query = ctx.selectFrom(brs.schema.Tables.ASK_ORDER).where(
-        brs.schema.Tables.ASK_ORDER.ASSET_ID.eq(assetId).and(brs.schema.Tables.ASK_ORDER.LATEST.isTrue())
-      ).orderBy(
-        brs.schema.Tables.ASK_ORDER.PRICE.asc(),
-        brs.schema.Tables.ASK_ORDER.CREATION_HEIGHT.asc(),
-        brs.schema.Tables.ASK_ORDER.ID.asc()
-      ).limit(1).getQuery();
-      try (BurstIterator<Order.Ask> askOrders = askOrderTable.getManyBy(ctx, query, true)) {
-        return askOrders.hasNext() ? askOrders.next() : null;
-      }
-    } catch (SQLException e) {
-      throw new RuntimeException(e.toString(), e);
+    DSLContext ctx = Db.getDSLContext();
+    SelectQuery query = ctx.selectFrom(brs.schema.Tables.ASK_ORDER).where(
+      brs.schema.Tables.ASK_ORDER.ASSET_ID.eq(assetId).and(brs.schema.Tables.ASK_ORDER.LATEST.isTrue())
+    ).orderBy(
+      brs.schema.Tables.ASK_ORDER.PRICE.asc(),
+      brs.schema.Tables.ASK_ORDER.CREATION_HEIGHT.asc(),
+      brs.schema.Tables.ASK_ORDER.ID.asc()
+    ).limit(1).getQuery();
+    try (BurstIterator<Order.Ask> askOrders = askOrderTable.getManyBy(ctx, query, true)) {
+      return askOrders.hasNext() ? askOrders.next() : null;
     }
   }
 
@@ -197,19 +198,16 @@ public class SqlOrderStore implements OrderStore {
 
   @Override
   public Order.Bid getNextBid(long assetId) {
-    try (DSLContext ctx = Db.getDSLContext() ) {
-      SelectQuery query = ctx.selectFrom(brs.schema.Tables.BID_ORDER).where(
-        brs.schema.Tables.BID_ORDER.ASSET_ID.eq(assetId).and(brs.schema.Tables.BID_ORDER.LATEST.isTrue())
-      ).orderBy(
-        brs.schema.Tables.BID_ORDER.PRICE.desc(),
-        brs.schema.Tables.BID_ORDER.CREATION_HEIGHT.asc(),
-        brs.schema.Tables.BID_ORDER.ID.asc()
-      ).limit(1).getQuery();
-      try (BurstIterator<Order.Bid> bidOrders = bidOrderTable.getManyBy(ctx, query, true)) {
-        return bidOrders.hasNext() ? bidOrders.next() : null;
-      }
-    } catch (SQLException e) {
-      throw new RuntimeException(e.toString(), e);
+    DSLContext ctx = Db.getDSLContext();
+    SelectQuery query = ctx.selectFrom(brs.schema.Tables.BID_ORDER).where(
+      brs.schema.Tables.BID_ORDER.ASSET_ID.eq(assetId).and(brs.schema.Tables.BID_ORDER.LATEST.isTrue())
+    ).orderBy(
+      brs.schema.Tables.BID_ORDER.PRICE.desc(),
+      brs.schema.Tables.BID_ORDER.CREATION_HEIGHT.asc(),
+      brs.schema.Tables.BID_ORDER.ID.asc()
+    ).limit(1).getQuery();
+    try (BurstIterator<Order.Bid> bidOrders = bidOrderTable.getManyBy(ctx, query, true)) {
+      return bidOrders.hasNext() ? bidOrders.next() : null;
     }
   }
 

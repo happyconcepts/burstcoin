@@ -2,19 +2,17 @@ package brs;
 
 import brs.crypto.Crypto;
 import brs.crypto.EncryptedData;
-import brs.db.BurstIterator;
+import brs.db.BurstKey;
 import brs.db.VersionedBatchEntityTable;
 import brs.db.VersionedEntityTable;
-
-import brs.db.BurstKey;
 import brs.util.Convert;
 import brs.util.Listener;
 import brs.util.Listeners;
-
 import java.util.Arrays;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public  class Account {
+public class Account {
 
   private static final Logger logger = Logger.getLogger(Account.class.getSimpleName());
 
@@ -31,12 +29,12 @@ public  class Account {
     private long quantityQNT;
     private long unconfirmedQuantityQNT;
 
-    protected AccountAsset(long accountId, long assetId, long quantityQNT, long unconfirmedQuantityQNT, BurstKey BurstKey) {
+    protected AccountAsset(long accountId, long assetId, long quantityQNT, long unconfirmedQuantityQNT, BurstKey burstKey) {
       this.accountId = accountId;
       this.assetId = assetId;
       this.quantityQNT = quantityQNT;
       this.unconfirmedQuantityQNT = unconfirmedQuantityQNT;
-      this.nxtKey = BurstKey;
+      this.nxtKey = burstKey;
     }
 
     protected AccountAsset(long accountId, long assetId, long quantityQNT, long unconfirmedQuantityQNT) {
@@ -66,9 +64,9 @@ public  class Account {
     private void save() {
       checkBalance(this.accountId, this.quantityQNT, this.unconfirmedQuantityQNT);
       if (this.quantityQNT > 0 || this.unconfirmedQuantityQNT > 0) {
-        accountAssetTable.insert(this);
+        accountAssetTable().insert(this);
       } else {
-        accountAssetTable.delete(this);
+        accountAssetTable().delete(this);
       }
     }
 
@@ -95,12 +93,12 @@ public  class Account {
     public final BurstKey nxtKey;
 
 
-    protected RewardRecipientAssignment(Long accountId, Long prevRecipientId, Long recipientId, int fromHeight, BurstKey BurstKey) {
+    protected RewardRecipientAssignment(Long accountId, Long prevRecipientId, Long recipientId, int fromHeight, BurstKey burstKey) {
       this.accountId = accountId;
       this.prevRecipientId = prevRecipientId;
       this.recipientId = recipientId;
       this.fromHeight = fromHeight;
-      this.nxtKey = BurstKey;
+      this.nxtKey = burstKey;
     }
 
 
@@ -135,28 +133,31 @@ public  class Account {
 
   }
 
-  static {
+  protected static final BurstKey.LongKeyFactory<Account> accountBurstKeyFactory() {
+    return Burst.getStores().getAccountStore().getAccountKeyFactory();
   }
 
-  protected static final BurstKey.LongKeyFactory<Account> accountBurstKeyFactory =  Burst.getStores().getAccountStore().getAccountKeyFactory();
-
-  private static final VersionedBatchEntityTable<Account> accountTable = Burst.getStores().getAccountStore().getAccountTable();
+  private static final VersionedBatchEntityTable<Account> accountTable() {
+    return Burst.getStores().getAccountStore().getAccountTable();
+  }
 
 
   public static void flushAccountTable() {
-    accountTable.finish();
+    accountTable().finish();
+  }
+
+  private static final VersionedEntityTable<AccountAsset> accountAssetTable() {
+    return Burst.getStores().getAccountStore().getAccountAssetTable();
   }
 
 
+  private static final VersionedEntityTable<RewardRecipientAssignment> rewardRecipientAssignmentTable() {
+    return Burst.getStores().getAccountStore().getRewardRecipientAssignmentTable();
+  }
 
-  private static final VersionedEntityTable<AccountAsset> accountAssetTable =  Burst.getStores().getAccountStore().getAccountAssetTable();
+  private static final Listeners<Account, Event> listeners = new Listeners<>();
 
-
-  private static final VersionedEntityTable<RewardRecipientAssignment> rewardRecipientAssignmentTable = Burst.getStores().getAccountStore().getRewardRecipientAssignmentTable();
-
-  private static final Listeners<Account,Event> listeners = new Listeners<>();
-
-  private static final Listeners<AccountAsset,Event> assetListeners = new Listeners<>();
+  private static final Listeners<AccountAsset, Event> assetListeners = new Listeners<>();
 
   public static boolean addListener(Listener<Account> listener, Event eventType) {
     return listeners.addListener(listener, eventType);
@@ -174,28 +175,16 @@ public  class Account {
     return assetListeners.removeListener(listener, eventType);
   }
 
-  public static BurstIterator<Account> getAllAccounts(int from, int to) {
-    return accountTable.getAll(from, to);
-  }
-
-  public static int getCount() {
-    return accountTable.getCount();
-  }
-
-  public static int getAssetAccountsCount(long assetId) {
-    return Burst.getStores().getAccountStore().getAssetAccountsCount(assetId);
-  }
-
   public static Account getAccount(long id) {
-    return id == 0 ? null : accountTable.get(accountBurstKeyFactory.newKey(id));
+    return id == 0 ? null : accountTable().get(accountBurstKeyFactory().newKey(id));
   }
 
   public static Account getAccount(long id, int height) {
-    return id == 0 ? null : accountTable.get(accountBurstKeyFactory.newKey(id), height);
+    return id == 0 ? null : accountTable().get(accountBurstKeyFactory().newKey(id), height);
   }
 
   public static Account getAccount(byte[] publicKey) {
-    Account account = accountTable.get(accountBurstKeyFactory.newKey(getId(publicKey)));
+    Account account = accountTable().get(accountBurstKeyFactory().newKey(getId(publicKey)));
     if (account == null) {
       return null;
     }
@@ -203,7 +192,7 @@ public  class Account {
       return account;
     }
     throw new RuntimeException("DUPLICATE KEY for account " + Convert.toUnsignedLong(account.getId())
-                               + " existing key " + Convert.toHexString(account.getPublicKey()) + " new key " + Convert.toHexString(publicKey));
+        + " existing key " + Convert.toHexString(account.getPublicKey()) + " new key " + Convert.toHexString(publicKey));
   }
 
   public static long getId(byte[] publicKey) {
@@ -211,28 +200,14 @@ public  class Account {
     return Convert.fullHashToId(publicKeyHash);
   }
 
-  static Account addOrGetAccount(long id) {
-    Account account = accountTable.get(accountBurstKeyFactory.newKey(id));
+  static Account getOrAddAccount(long id) {
+    Account account = getAccount(id);
     if (account == null) {
       account = new Account(id);
-      accountTable.insert(account);
+      accountTable().insert(account);
     }
     return account;
   }
-
-  public static BurstIterator<AccountAsset> getAssetAccounts(long assetId, int from, int to) {
-    return Burst.getStores().getAccountStore().getAssetAccounts(assetId, from, to);
-  }
-
-  public static BurstIterator<AccountAsset> getAssetAccounts(long assetId, int height, int from, int to) {
-    if (height < 0) {
-      return getAssetAccounts(assetId, from, to);
-    }
-    return Burst.getStores().getAccountStore().getAssetAccounts(assetId, height, from, to);
-  }
-
-  static void init() {}
-
 
   public final long id;
   public final BurstKey nxtKey;
@@ -247,21 +222,21 @@ public  class Account {
   protected String description;
 
 
-  protected Account(long id) {
+  public Account(long id) {
     if (id != Crypto.rsDecode(Crypto.rsEncode(id))) {
-      logger.info("CRITICAL ERROR: Reed-Solomon encoding fails for " + id);
+      logger.log(Level.INFO, "CRITICAL ERROR: Reed-Solomon encoding fails for {0}", id);
     }
     this.id = id;
-    this.nxtKey = accountBurstKeyFactory.newKey(this.id);
+    this.nxtKey = accountBurstKeyFactory().newKey(this.id);
     this.creationHeight = Burst.getBlockchain().getHeight();
   }
 
-  protected Account(long id, BurstKey BurstKey, int creationHeight) {
+  protected Account(long id, BurstKey burstKey, int creationHeight) {
     if (id != Crypto.rsDecode(Crypto.rsEncode(id))) {
-      logger.info("CRITICAL ERROR: Reed-Solomon encoding fails for " + id);
+      logger.log(Level.INFO, "CRITICAL ERROR: Reed-Solomon encoding fails for {0}", id);
     }
     this.id = id;
-    this.nxtKey = BurstKey;
+    this.nxtKey = burstKey;
     this.creationHeight = creationHeight;
   }
 
@@ -280,7 +255,7 @@ public  class Account {
   void setAccountInfo(String name, String description) {
     this.name = Convert.emptyToNull(name.trim());
     this.description = Convert.emptyToNull(description.trim());
-    accountTable.insert(this);
+    accountTable().insert(this);
   }
 
   public byte[] getPublicKey() {
@@ -324,27 +299,10 @@ public  class Account {
     return forgedBalanceNQT;
   }
 
-  public BurstIterator<AccountAsset> getAssets(int from, int to) {
-    return Burst.getStores().getAccountStore().getAssets(from, to, this.id);
-  }
-
-  public BurstIterator<Trade> getTrades(int from, int to) {
-    return Trade.getAccountTrades(this.id, from, to);
-  }
-
-  public BurstIterator<AssetTransfer> getAssetTransfers(int from, int to) {
-    return AssetTransfer.getAccountAssetTransfers(this.id, from, to);
-  }
-
-  public long getAssetBalanceQNT(long assetId) {
-    BurstKey nxtKey =  Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
-    AccountAsset accountAsset = accountAssetTable.get(nxtKey);
-    return accountAsset == null ? 0 : accountAsset.quantityQNT;
-  }
 
   public long getUnconfirmedAssetBalanceQNT(long assetId) {
-    BurstKey nxtKey =  Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
-    AccountAsset accountAsset = accountAssetTable.get(nxtKey);
+    BurstKey newKey = Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
+    AccountAsset accountAsset = accountAssetTable().get(newKey);
     return accountAsset == null ? 0 : accountAsset.unconfirmedQuantityQNT;
   }
 
@@ -353,9 +311,9 @@ public  class Account {
   }
 
   public static RewardRecipientAssignment getRewardRecipientAssignment(Long id) {
-    return rewardRecipientAssignmentTable.get(
-                                              Burst.getStores().getAccountStore().getRewardRecipientAssignmentKeyFactory().newKey(id)
-                                              );
+    return rewardRecipientAssignmentTable().get(
+        Burst.getStores().getAccountStore().getRewardRecipientAssignmentKeyFactory().newKey(id)
+    );
   }
 
   public void setRewardRecipientAssignment(Long recipient) {
@@ -365,52 +323,46 @@ public  class Account {
   public static void setRewardRecipientAssignment(Long id, Long recipient) {
     int currentHeight = Burst.getBlockchain().getLastBlock().getHeight();
     RewardRecipientAssignment assignment = getRewardRecipientAssignment(id);
-    if(assignment == null) {
-      BurstKey BurstKey =     Burst.getStores().getAccountStore().getRewardRecipientAssignmentKeyFactory().newKey(id);
-      assignment = new RewardRecipientAssignment(id, id, recipient, (int) (currentHeight + Constants.BURST_REWARD_RECIPIENT_ASSIGNMENT_WAIT_TIME), BurstKey);
-    }
-    else {
+    if (assignment == null) {
+      BurstKey burstKey = Burst.getStores().getAccountStore().getRewardRecipientAssignmentKeyFactory().newKey(id);
+      assignment = new RewardRecipientAssignment(id, id, recipient, (int) (currentHeight + Constants.BURST_REWARD_RECIPIENT_ASSIGNMENT_WAIT_TIME), burstKey);
+    } else {
       assignment.setRecipient(recipient, (int) (currentHeight + Constants.BURST_REWARD_RECIPIENT_ASSIGNMENT_WAIT_TIME));
     }
-    rewardRecipientAssignmentTable.insert(assignment);
+    rewardRecipientAssignmentTable().insert(assignment);
   }
 
-
-
-  public static BurstIterator<RewardRecipientAssignment> getAccountsWithRewardRecipient(Long recipientId) {
-    return Burst.getStores().getAccountStore().getAccountsWithRewardRecipient(recipientId);
-  }
 
   // returns true iff:
   // this.publicKey is set to null (in which case this.publicKey also gets set to key)
   // or
   // this.publicKey is already set to an array equal to key
-  boolean setOrVerify(byte[] key, int height) {
+  public boolean setOrVerify(byte[] key, int height) {
     return Burst.getStores().getAccountStore().setOrVerify(this, key, height);
   }
 
-  void apply(byte[] key, int height) {
-    if (! setOrVerify(key, this.creationHeight)) {
+  public void apply(byte[] key, int height) {
+    if (!setOrVerify(key, this.creationHeight)) {
       throw new IllegalStateException("Public key mismatch");
     }
     if (this.publicKey == null) {
       throw new IllegalStateException("Public key has not been set for account " + Convert.toUnsignedLong(id)
-                                      +" at height " + height + ", key height is " + keyHeight);
+          + " at height " + height + ", key height is " + keyHeight);
     }
     if (this.keyHeight == -1 || this.keyHeight > height) {
       this.keyHeight = height;
-      accountTable.insert(this);
+      accountTable().insert(this);
     }
   }
 
-  void addToAssetBalanceQNT(long assetId, long quantityQNT) {
+  public void addToAssetBalanceQNT(long assetId, long quantityQNT) {
     if (quantityQNT == 0) {
       return;
     }
     AccountAsset accountAsset;
 
-    BurstKey nxtKey =  Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
-    accountAsset = accountAssetTable.get(nxtKey);
+    BurstKey newKey = Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
+    accountAsset = accountAssetTable().get(newKey);
     long assetBalance = accountAsset == null ? 0 : accountAsset.quantityQNT;
     assetBalance = Convert.safeAdd(assetBalance, quantityQNT);
     if (accountAsset == null) {
@@ -428,8 +380,8 @@ public  class Account {
       return;
     }
     AccountAsset accountAsset;
-    BurstKey nxtKey =  Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
-    accountAsset = accountAssetTable.get(nxtKey);
+    BurstKey newKey = Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
+    accountAsset = accountAssetTable().get(newKey);
     long unconfirmedAssetBalance = accountAsset == null ? 0 : accountAsset.unconfirmedQuantityQNT;
     unconfirmedAssetBalance = Convert.safeAdd(unconfirmedAssetBalance, quantityQNT);
     if (accountAsset == null) {
@@ -442,13 +394,13 @@ public  class Account {
     assetListeners.notify(accountAsset, Event.UNCONFIRMED_ASSET_BALANCE);
   }
 
-  void addToAssetAndUnconfirmedAssetBalanceQNT(long assetId, long quantityQNT) {
+  public void addToAssetAndUnconfirmedAssetBalanceQNT(long assetId, long quantityQNT) {
     if (quantityQNT == 0) {
       return;
     }
     AccountAsset accountAsset;
-    BurstKey nxtKey =  Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
-    accountAsset = accountAssetTable.get(nxtKey);
+    BurstKey newKey = Burst.getStores().getAccountStore().getAccountAssetKeyFactory().newKey(this.id, assetId);
+    accountAsset = accountAssetTable().get(newKey);
     long assetBalance = accountAsset == null ? 0 : accountAsset.quantityQNT;
     assetBalance = Convert.safeAdd(assetBalance, quantityQNT);
     long unconfirmedAssetBalance = accountAsset == null ? 0 : accountAsset.unconfirmedQuantityQNT;
@@ -466,44 +418,44 @@ public  class Account {
     assetListeners.notify(accountAsset, Event.UNCONFIRMED_ASSET_BALANCE);
   }
 
-  void addToBalanceNQT(long amountNQT) {
+  public void addToBalanceNQT(long amountNQT) {
     if (amountNQT == 0) {
       return;
     }
     this.balanceNQT = Convert.safeAdd(this.balanceNQT, amountNQT);
     checkBalance(this.id, this.balanceNQT, this.unconfirmedBalanceNQT);
-    accountTable.insert(this);
+    accountTable().insert(this);
     listeners.notify(this, Event.BALANCE);
   }
 
-  void addToUnconfirmedBalanceNQT(long amountNQT) {
+  public void addToUnconfirmedBalanceNQT(long amountNQT) {
     if (amountNQT == 0) {
       return;
     }
     this.unconfirmedBalanceNQT = Convert.safeAdd(this.unconfirmedBalanceNQT, amountNQT);
     checkBalance(this.id, this.balanceNQT, this.unconfirmedBalanceNQT);
-    accountTable.insert(this);
+    accountTable().insert(this);
     listeners.notify(this, Event.UNCONFIRMED_BALANCE);
   }
 
-  void addToBalanceAndUnconfirmedBalanceNQT(long amountNQT) {
+  public void addToBalanceAndUnconfirmedBalanceNQT(long amountNQT) {
     if (amountNQT == 0) {
       return;
     }
     this.balanceNQT = Convert.safeAdd(this.balanceNQT, amountNQT);
     this.unconfirmedBalanceNQT = Convert.safeAdd(this.unconfirmedBalanceNQT, amountNQT);
     checkBalance(this.id, this.balanceNQT, this.unconfirmedBalanceNQT);
-    accountTable.insert(this);
+    accountTable().insert(this);
     listeners.notify(this, Event.BALANCE);
     listeners.notify(this, Event.UNCONFIRMED_BALANCE);
   }
 
-  void addToForgedBalanceNQT(long amountNQT) {
+  public void addToForgedBalanceNQT(long amountNQT) {
     if (amountNQT == 0) {
       return;
     }
     this.forgedBalanceNQT = Convert.safeAdd(this.forgedBalanceNQT, amountNQT);
-    accountTable.insert(this);
+    accountTable().insert(this);
   }
 
   private static void checkBalance(long accountId, long confirmed, long unconfirmed) {

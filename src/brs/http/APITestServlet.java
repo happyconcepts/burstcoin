@@ -106,16 +106,16 @@ public class APITestServlet extends HttpServlet {
       + "    <ul class=\"nav nav-pills nav-stacked\">";
   private static final String header2 =
       "    </ul>"
-      + "  </div> <!-- col -->"
+      + "  </div>"
       + "  <div  class=\"col-xs-8 col-sm-9 col-md-10\">"
       + "    <div class=\"panel-group\" id=\"accordion\">";
 
   private static final String footer1 =
-      "    </div> <!-- panel-group -->"
-      + "  </div> <!-- col -->"
-      + "</div> <!-- row -->"
-      + "</div> <!-- container -->"
-      + "<script src=\"js/3rdparty/jquery.js\"></script>"
+      "    </div> "
+      + "  </div> "
+      + "</div> "
+      + "</div> "
+      + "<script src=\"js/3rdparty/jquery.min.js\"></script>"
       + "<script src=\"js/3rdparty/bootstrap.js\" type=\"text/javascript\"></script>"
       + "<script>"
       + "  $(document).ready(function() {"
@@ -158,19 +158,15 @@ public class APITestServlet extends HttpServlet {
     Collections.sort(allRequestTypes);
   }
 
-  private static final SortedMap<String, SortedSet<String>> requestTags = new TreeMap<>();
+  private static final SortedMap<String, SortedSet<String>> requestTags = buildRequestTags();
   private static SortedMap<String, SortedSet<String>> buildRequestTags () {
     SortedMap<String, SortedSet<String>> r = new TreeMap<>();
     for (Map.Entry<String, APIServlet.APIRequestHandler> entry : APIServlet.apiRequestHandlers.entrySet()) {
       final String requestType = entry.getKey();
       final Set<APITag> apiTags = entry.getValue().getAPITags();
       for (APITag apiTag : apiTags) {
-        SortedSet<String> set = r.get(apiTag.name());
-        if (set == null) {
-          set = new TreeSet<>();
-          r.put(apiTag.name(), set);
-        }
-        set.add(requestType);
+          SortedSet<String> set = r.computeIfAbsent(apiTag.name(), k -> new TreeSet<>());
+          set.add(requestType);
       }
     }
     return r;
@@ -197,7 +193,7 @@ public class APITestServlet extends HttpServlet {
     return buf.toString();
   }
 
-  protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+  protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
 
     resp.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, private");
     resp.setHeader("Pragma", "no-cache");
@@ -266,7 +262,7 @@ public class APITestServlet extends HttpServlet {
     // not yet buf.append(className.replaceAll("nxt","burst").replace('.','/')).append(".html\" target=\"_blank\">javadoc</a>");
     buf.append("</span>");
     buf.append("</h4>");
-    buf.append("</div> <!-- panel-heading -->");
+    buf.append("</div>");
     buf.append("<div id=\"collapse").append(requestType).append("\" class=\"panel-collapse collapse");
     if (singleView) {
       buf.append(" in");
@@ -302,9 +298,9 @@ public class APITestServlet extends HttpServlet {
     buf.append("<pre class=\"result\">JSON response</pre>");
     buf.append("</div>");
     buf.append("</form>");
-    buf.append("</div> <!-- panel-body -->");
-    buf.append("</div> <!-- panel-collapse -->");
-    buf.append("</div> <!-- panel -->");
+    buf.append("</div>");
+    buf.append("</div>");
+    buf.append("</div>");
     return buf.toString();
   }
 

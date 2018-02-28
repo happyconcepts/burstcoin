@@ -1,15 +1,13 @@
 package brs.db;
 
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 
 public interface BurstKey {
 
   interface Factory<T> {
     BurstKey newKey(T t);
 
-    BurstKey newKey(ResultSet rs) throws SQLException;
+    BurstKey newKey(ResultSet rs);
   }
 
   long[] getPKValues();

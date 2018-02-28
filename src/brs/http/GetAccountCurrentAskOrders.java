@@ -1,30 +1,40 @@
 package brs.http;
 
+import static brs.http.common.Parameters.ACCOUNT_PARAMETER;
+import static brs.http.common.Parameters.ASSET_PARAMETER;
+import static brs.http.common.Parameters.FIRST_INDEX_PARAMETER;
+import static brs.http.common.Parameters.LAST_INDEX_PARAMETER;
+import static brs.http.common.ResultFields.ASK_ORDERS_RESPONSE;
+
 import brs.BurstException;
 import brs.Order;
 import brs.db.BurstIterator;
+import brs.services.OrderService;
+import brs.services.ParameterService;
 import brs.util.Convert;
+import javax.servlet.http.HttpServletRequest;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
 
-import javax.servlet.http.HttpServletRequest;
-
 public final class GetAccountCurrentAskOrders extends APIServlet.APIRequestHandler {
 
-  static final GetAccountCurrentAskOrders instance = new GetAccountCurrentAskOrders();
+  private final ParameterService parameterService;
+  private final OrderService orderService;
 
-  private GetAccountCurrentAskOrders() {
-    super(new APITag[] {APITag.ACCOUNTS, APITag.AE}, "account", "asset", "firstIndex", "lastIndex");
+  GetAccountCurrentAskOrders(ParameterService parameterService, OrderService orderService) {
+    super(new APITag[]{APITag.ACCOUNTS, APITag.AE}, ACCOUNT_PARAMETER, ASSET_PARAMETER, FIRST_INDEX_PARAMETER, LAST_INDEX_PARAMETER);
+    this.parameterService = parameterService;
+    this.orderService = orderService;
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) throws BurstException {
+    final long accountId = parameterService.getAccount(req).getId();
 
-    long accountId = ParameterParser.getAccount(req).getId();
     long assetId = 0;
     try {
-      assetId = Convert.parseUnsignedLong(req.getParameter("asset"));
+      assetId = Convert.parseUnsignedLong(req.getParameter(ASSET_PARAMETER));
     } catch (RuntimeException e) {
       // ignore
     }
@@ -33,9 +43,9 @@ public final class GetAccountCurrentAskOrders extends APIServlet.APIRequestHandl
 
     BurstIterator<Order.Ask> askOrders;
     if (assetId == 0) {
-      askOrders = Order.Ask.getAskOrdersByAccount(accountId, firstIndex, lastIndex);
+      askOrders = orderService.getAskOrdersByAccount(accountId, firstIndex, lastIndex);
     } else {
-      askOrders = Order.Ask.getAskOrdersByAccountAsset(accountId, assetId, firstIndex, lastIndex);
+      askOrders = orderService.getAskOrdersByAccountAsset(accountId, assetId, firstIndex, lastIndex);
     }
     JSONArray orders = new JSONArray();
     try {
@@ -46,7 +56,7 @@ public final class GetAccountCurrentAskOrders extends APIServlet.APIRequestHandl
       askOrders.close();
     }
     JSONObject response = new JSONObject();
-    response.put("askOrders", orders);
+    response.put(ASK_ORDERS_RESPONSE, orders);
     return response;
   }
 

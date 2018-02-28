@@ -1,7 +1,14 @@
 package brs.http;
 
+import static brs.http.common.Parameters.HEIGHT_PARAMETER;
+import static brs.http.common.Parameters.NUM_BLOCKS_PARAMETER;
+import static brs.http.common.ResultFields.BLOCKS_RESPONSE;
+import static brs.http.common.ResultFields.ERROR_RESPONSE;
+
 import brs.Block;
-import brs.Burst;
+import brs.Blockchain;
+import brs.BlockchainProcessor;
+import brs.services.BlockService;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
@@ -11,10 +18,15 @@ import java.util.List;
 
 public final class PopOff extends APIServlet.APIRequestHandler {
 
-  static final PopOff instance = new PopOff();
+  private final BlockchainProcessor blockchainProcessor;
+  private final Blockchain blockchain;
+  private final BlockService blockService;
 
-  private PopOff() {
-    super(new APITag[] {APITag.DEBUG}, "numBlocks", "height");
+  PopOff(BlockchainProcessor blockchainProcessor, Blockchain blockchain, BlockService blockService) {
+    super(new APITag[] {APITag.DEBUG}, NUM_BLOCKS_PARAMETER, HEIGHT_PARAMETER);
+    this.blockchainProcessor = blockchainProcessor;
+    this.blockchain = blockchain;
+    this.blockService = blockService;
   }
 
   @Override
@@ -23,29 +35,29 @@ public final class PopOff extends APIServlet.APIRequestHandler {
     JSONObject response = new JSONObject();
     int numBlocks = 0;
     try {
-      numBlocks = Integer.parseInt(req.getParameter("numBlocks"));
+      numBlocks = Integer.parseInt(req.getParameter(NUM_BLOCKS_PARAMETER));
     } catch (NumberFormatException e) {}
     int height = 0;
     try {
-      height = Integer.parseInt(req.getParameter("height"));
+      height = Integer.parseInt(req.getParameter(HEIGHT_PARAMETER));
     } catch (NumberFormatException e) {}
 
     List<? extends Block> blocks;
     JSONArray blocksJSON = new JSONArray();
     if (numBlocks > 0) {
-      blocks = Burst.getBlockchainProcessor().popOffTo(Burst.getBlockchain().getHeight() - numBlocks);
+      blocks = blockchainProcessor.popOffTo(blockchain.getHeight() - numBlocks);
     }
     else if (height > 0) {
-      blocks = Burst.getBlockchainProcessor().popOffTo(height);
+      blocks = blockchainProcessor.popOffTo(height);
     }
     else {
-      response.put("error", "invalid numBlocks or height");
+      response.put(ERROR_RESPONSE, "invalid numBlocks or height");
       return response;
     }
     for (Block block : blocks) {
-      blocksJSON.add(JSONData.block(block, true));
+      blocksJSON.add(JSONData.block(block, true, blockchain.getHeight(), blockService.getBlockReward(block), blockService.getScoopNum(block)));
     }
-    response.put("blocks", blocksJSON);
+    response.put(BLOCKS_RESPONSE, blocksJSON);
     return response;
   }
 

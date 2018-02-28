@@ -1,32 +1,40 @@
 package brs.http;
 
+import static brs.http.JSONResponses.INCORRECT_RECIPIENT;
+import static brs.http.common.Parameters.MESSAGE_TO_ENCRYPT_IS_TEXT_PARAMETER;
+import static brs.http.common.Parameters.MESSAGE_TO_ENCRYPT_PARAMETER;
+import static brs.http.common.Parameters.RECIPIENT_PARAMETER;
+import static brs.http.common.Parameters.SECRET_PHRASE_PARAMETER;
+
 import brs.Account;
 import brs.BurstException;
 import brs.crypto.EncryptedData;
-import org.json.simple.JSONStreamAware;
-
+import brs.services.AccountService;
+import brs.services.ParameterService;
 import javax.servlet.http.HttpServletRequest;
-
-import static brs.http.JSONResponses.INCORRECT_RECIPIENT;
+import org.json.simple.JSONStreamAware;
 
 public final class EncryptTo extends APIServlet.APIRequestHandler {
 
-  static final EncryptTo instance = new EncryptTo();
+  private final ParameterService parameterService;
+  private final AccountService accountService;
 
-  private EncryptTo() {
-    super(new APITag[] {APITag.MESSAGES}, "recipient", "messageToEncrypt", "messageToEncryptIsText", "secretPhrase");
+  EncryptTo(ParameterService parameterService, AccountService accountService) {
+    super(new APITag[]{APITag.MESSAGES}, RECIPIENT_PARAMETER, MESSAGE_TO_ENCRYPT_PARAMETER, MESSAGE_TO_ENCRYPT_IS_TEXT_PARAMETER, SECRET_PHRASE_PARAMETER);
+    this.parameterService = parameterService;
+    this.accountService = accountService;
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) throws BurstException {
 
     long recipientId = ParameterParser.getRecipientId(req);
-    Account recipientAccount = Account.getAccount(recipientId);
+    Account recipientAccount = accountService.getAccount(recipientId);
     if (recipientAccount == null || recipientAccount.getPublicKey() == null) {
       return INCORRECT_RECIPIENT;
     }
 
-    EncryptedData encryptedData = ParameterParser.getEncryptedMessage(req, recipientAccount);
+    EncryptedData encryptedData = parameterService.getEncryptedMessage(req, recipientAccount);
     return JSONData.encryptedData(encryptedData);
 
   }

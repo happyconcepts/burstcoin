@@ -1,31 +1,42 @@
 package brs.http;
 
+import static brs.http.JSONResponses.INCORRECT_DGS_LISTING_DESCRIPTION;
+import static brs.http.JSONResponses.INCORRECT_DGS_LISTING_NAME;
+import static brs.http.JSONResponses.INCORRECT_DGS_LISTING_TAGS;
+import static brs.http.JSONResponses.MISSING_NAME;
+import static brs.http.common.Parameters.DESCRIPTION_PARAMETER;
+import static brs.http.common.Parameters.NAME_PARAMETER;
+import static brs.http.common.Parameters.PRICE_NQT_PARAMETER;
+import static brs.http.common.Parameters.QUANTITY_PARAMETER;
+import static brs.http.common.Parameters.TAGS_PARAMETER;
+
 import brs.Account;
 import brs.Attachment;
-import brs.Constants;
+import brs.Blockchain;
 import brs.BurstException;
+import brs.Constants;
+import brs.services.ParameterService;
 import brs.util.Convert;
-import org.json.simple.JSONStreamAware;
-
 import javax.servlet.http.HttpServletRequest;
-
-import static brs.http.JSONResponses.*;
+import org.json.simple.JSONStreamAware;
 
 public final class DGSListing extends CreateTransaction {
 
-  static final DGSListing instance = new DGSListing();
+  private final ParameterService parameterService;
+  private final Blockchain blockchain;
 
-  private DGSListing() {
-    super(new APITag[] {APITag.DGS, APITag.CREATE_TRANSACTION},
-          "name", "description", "tags", "quantity", "priceNQT");
+  DGSListing(ParameterService parameterService, Blockchain blockchain, APITransactionManager apiTransactionManager) {
+    super(new APITag[]{APITag.DGS, APITag.CREATE_TRANSACTION}, apiTransactionManager, NAME_PARAMETER, DESCRIPTION_PARAMETER, TAGS_PARAMETER, QUANTITY_PARAMETER, PRICE_NQT_PARAMETER);
+    this.parameterService = parameterService;
+    this.blockchain = blockchain;
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) throws BurstException {
 
-    String name = Convert.emptyToNull(req.getParameter("name"));
-    String description = Convert.nullToEmpty(req.getParameter("description"));
-    String tags = Convert.nullToEmpty(req.getParameter("tags"));
+    String name = Convert.emptyToNull(req.getParameter(NAME_PARAMETER));
+    String description = Convert.nullToEmpty(req.getParameter(DESCRIPTION_PARAMETER));
+    String tags = Convert.nullToEmpty(req.getParameter(TAGS_PARAMETER));
     long priceNQT = ParameterParser.getPriceNQT(req);
     int quantity = ParameterParser.getGoodsQuantity(req);
 
@@ -45,8 +56,8 @@ public final class DGSListing extends CreateTransaction {
       return INCORRECT_DGS_LISTING_TAGS;
     }
 
-    Account account = ParameterParser.getSenderAccount(req);
-    Attachment attachment = new Attachment.DigitalGoodsListing(name, description, tags, quantity, priceNQT);
+    Account account = parameterService.getSenderAccount(req);
+    Attachment attachment = new Attachment.DigitalGoodsListing(name, description, tags, quantity, priceNQT, blockchain.getHeight());
     return createTransaction(req, account, attachment);
 
   }

@@ -13,8 +13,9 @@ import brs.at.AT_Machine_State;
 import brs.at.AT_Transaction;
 import brs.db.BurstKey;
 import brs.db.VersionedEntityTable;
-import brs.util.Listener;
 
+import brs.services.AccountService;
+import brs.util.Listener;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -24,56 +25,65 @@ import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
-public final class AT extends AT_Machine_State {
+public class AT extends AT_Machine_State {
     
   private static final LinkedHashMap<Long, Long> pendingFees = new LinkedHashMap<>();
   private static final List<AT_Transaction> pendingTransactions = new ArrayList<>();
 
-  static {
-    Burst.getBlockchainProcessor().addListener((Block block) -> {
-          pendingFees.entrySet().forEach((entry) -> {
-            Account atAccount = Account.getAccount(entry.getKey());
-            atAccount.addToBalanceAndUnconfirmedBalanceNQT(-entry.getValue());
-          });
-          
-          List<TransactionImpl> transactions = new ArrayList<>();
-          for (AT_Transaction atTransaction : pendingTransactions) {
-            Account.getAccount(AT_API_Helper.getLong(atTransaction.getSenderId())).addToBalanceAndUnconfirmedBalanceNQT(-atTransaction.getAmount());
-            Account.addOrGetAccount(AT_API_Helper.getLong(atTransaction.getRecipientId())).addToBalanceAndUnconfirmedBalanceNQT(atTransaction.getAmount());
+  public static class HandleATBlockTransactionsListener implements Listener<Block> {
+    private final AccountService accountService;
+    private final Blockchain blockchain;
+    private final TransactionDb transactionDb;
 
-            TransactionImpl.BuilderImpl builder = new TransactionImpl.BuilderImpl((byte)1, Genesis.CREATOR_PUBLIC_KEY,
-                                                                                  atTransaction.getAmount(), 0L, block.getTimestamp(), (short)1440, Attachment.AT_PAYMENT);
+    HandleATBlockTransactionsListener(AccountService accountService, Blockchain blockchain, TransactionDb transactionDb) {
+      this.accountService = accountService;
+      this.blockchain = blockchain;
+      this.transactionDb = transactionDb;
+    }
 
-            builder.senderId(AT_API_Helper.getLong(atTransaction.getSenderId()))
-                .recipientId(AT_API_Helper.getLong(atTransaction.getRecipientId()))
-                .blockId(block.getId())
-                .height(block.getHeight())
-                .blockTimestamp(block.getTimestamp())
-                .ecBlockHeight(0)
-                .ecBlockId(0L);
+    @Override
+      public void notify(Block block) {
+        pendingFees.forEach((key, value) -> {
+          Account atAccount = accountService.getAccount(key);
+          atAccount.addToBalanceAndUnconfirmedBalanceNQT(-value);
+        });
 
-            byte[] message = atTransaction.getMessage();
-            if (message != null) {
-              builder.message(new Appendix.Message(message));
-            }
+        List<Transaction> transactions = new ArrayList<>();
+        for (AT_Transaction atTransaction : pendingTransactions) {
+          accountService.getAccount(AT_API_Helper.getLong(atTransaction.getSenderId())).addToBalanceAndUnconfirmedBalanceNQT(-atTransaction.getAmount());
+          accountService.getOrAddAccount(AT_API_Helper.getLong(atTransaction.getRecipientId())).addToBalanceAndUnconfirmedBalanceNQT(atTransaction.getAmount());
 
-            try {
-              TransactionImpl transaction = builder.build();
-              if (!Burst.getDbs().getTransactionDb().hasTransaction(transaction.getId())) {
-                transactions.add(transaction);
-              }
-            }
-            catch(BurstException.NotValidException e) {
-              throw new RuntimeException("Failed to construct AT payment transaction", e);
-            }
+          Transaction.Builder builder = new Transaction.Builder((byte) 1, Genesis.CREATOR_PUBLIC_KEY,
+              atTransaction.getAmount(), 0L, block.getTimestamp(), (short) 1440, Attachment.AT_PAYMENT);
+
+          builder.senderId(AT_API_Helper.getLong(atTransaction.getSenderId()))
+              .recipientId(AT_API_Helper.getLong(atTransaction.getRecipientId()))
+              .blockId(block.getId())
+              .height(block.getHeight())
+              .blockTimestamp(block.getTimestamp())
+              .ecBlockHeight(0)
+              .ecBlockId(0L);
+
+          byte[] message = atTransaction.getMessage();
+          if (message != null) {
+            builder.message(new Appendix.Message(message, blockchain.getHeight()));
           }
 
-          if (!transactions.isEmpty()) {
-            /** WATCH: Replace after transactions are converted! */
-            Burst.getDbs().getTransactionDb().saveTransactions( transactions);
+          try {
+            Transaction transaction = builder.build();
+            if (!transactionDb.hasTransaction(transaction.getId())) {
+              transactions.add(transaction);
+            }
+          } catch (BurstException.NotValidException e) {
+            throw new RuntimeException("Failed to construct AT payment transaction", e);
           }
-          
-      }, BlockchainProcessor.Event.AFTER_BLOCK_APPLY);
+        }
+
+        if (!transactions.isEmpty()) {
+          /** WATCH: Replace after transactions are converted! */
+          transactionDb.saveTransactions(transactions);
+        }
+      }
   }
 
   public static void clearPendingFees() {
@@ -120,7 +130,7 @@ public final class AT extends AT_Machine_State {
     protected ATState(long atId, byte[] state,
                       int nextHeight, int sleepBetween, long prevBalance, boolean freezeWhenSameBalance, long minActivationAmount) {
       this.atId = atId;
-      this.dbKey =  atStateDbKeyFactory.newKey(this.atId);
+      this.dbKey =  atStateDbKeyFactory().newKey(this.atId);
       this.state = state;
       this.nextHeight = nextHeight;
       this.sleepBetween = sleepBetween;
@@ -192,31 +202,29 @@ public final class AT extends AT_Machine_State {
     }
   }
 
-  private static final BurstKey.LongKeyFactory<AT> atDbKeyFactory =Burst.getStores().getAtStore().getAtDbKeyFactory();
-
-  private static final VersionedEntityTable<AT> atTable = Burst.getStores().getAtStore().getAtTable();
-
-
-  private static final BurstKey.LongKeyFactory<ATState> atStateDbKeyFactory = Burst.getStores().getAtStore().getAtStateDbKeyFactory();
-
-  private static final VersionedEntityTable<ATState> atStateTable = Burst.getStores().getAtStore().getAtStateTable();
-
-  public static Collection<Long> getAllATIds()
-  {
-    return Burst.getStores().getAtStore().getAllATIds();
+  private static final BurstKey.LongKeyFactory<AT> atDbKeyFactory() {
+    return Burst.getStores().getAtStore().getAtDbKeyFactory();
   }
 
-  public static AT getAT(byte[] id)
-  {
+  private static final VersionedEntityTable<AT> atTable() {
+    return Burst.getStores().getAtStore().getAtTable();
+  }
+
+
+  private static final BurstKey.LongKeyFactory<ATState> atStateDbKeyFactory() {
+    return Burst.getStores().getAtStore().getAtStateDbKeyFactory();
+  }
+
+  private static final VersionedEntityTable<ATState> atStateTable() {
+    return Burst.getStores().getAtStore().getAtStateTable();
+  }
+
+  public static AT getAT(byte[] id) {
     return getAT( AT_API_Helper.getLong( id ) );
   }
 
   public static AT getAT(Long id) {
     return Burst.getStores().getAtStore().getAT(id);
-  }
-
-  public static List<Long> getATsIssuedBy(Long accountId) {
-    return Burst.getStores().getAtStore().getATsIssuedBy(accountId);
   }
 
   static void addAT(Long atId, Long senderAccountId, String name, String description, byte[] creationBytes , int height) {
@@ -239,16 +247,16 @@ public final class AT extends AT_Machine_State {
 
     AT_Controller.resetMachine(at);
 
-    atTable.insert(at);
+    atTable().insert(at);
 
     at.saveState();
 
-    Account account = Account.addOrGetAccount(atId);
+    Account account = Account.getOrAddAccount(atId);
     account.apply(new byte[32], height);
   }
 
   public void saveState() {
-    ATState state = atStateTable.get(atStateDbKeyFactory.newKey( AT_API_Helper.getLong( this.getId() ) ) );
+    ATState state = atStateTable().get(atStateDbKeyFactory().newKey( AT_API_Helper.getLong( this.getId() ) ) );
     int prevHeight = Burst.getBlockchain().getHeight();
     int newNextHeight = prevHeight + getWaitForNumberOfBlocks();
     if (state != null) {
@@ -265,33 +273,11 @@ public final class AT extends AT_Machine_State {
                           getState(), newNextHeight, getSleepBetween(),
                           getP_balance(), freezeOnSameBalance(), minActivationAmount());
     }
-    atStateTable.insert(state);
-  }
-
-
-  private static void deleteAT( AT at ) {
-    ATState atState = atStateTable.get(atStateDbKeyFactory.newKey(AT_API_Helper.getLong(at.getId())));
-    if (atState != null) {
-      atStateTable.delete(atState);
-    }
-    atTable.delete(at);
-    //TODO: release account
-  }
-
-  private static void deleteAT( Long id ) {
-    AT at = AT.getAT(id);
-    if (at != null) {
-      deleteAT(at);
-    }
+    atStateTable().insert(state);
   }
 
   public static List< Long > getOrderedATs(){
     return Burst.getStores().getAtStore().getOrderedATs();
-  }
-
-
-  static boolean isATAccountId(Long id) {
-    return Burst.getStores().getAtStore().isATAccountId(id);
   }
 
   public static byte[] compressState(byte[] stateBytes) {
@@ -341,7 +327,7 @@ public final class AT extends AT_Machine_State {
     super( atId , creator , creationBytes , height );
     this.name = name;
     this.description = description;
-    dbKey = atDbKeyFactory.newKey(AT_API_Helper.getLong(atId));
+    dbKey = atDbKeyFactory().newKey(AT_API_Helper.getLong(atId));
     this.nextHeight = Burst.getBlockchain().getHeight();
   }
 
@@ -355,7 +341,7 @@ public final class AT extends AT_Machine_State {
           freezeWhenSameBalance , minActivationAmount , apCode );
     this.name = name;
     this.description = description;
-    dbKey = atDbKeyFactory.newKey(AT_API_Helper.getLong(atId));
+    dbKey = atDbKeyFactory().newKey(AT_API_Helper.getLong(atId));
     this.nextHeight = nextHeight;
   }
 

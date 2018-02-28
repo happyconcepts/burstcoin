@@ -5,9 +5,9 @@ import brs.db.BurstIterator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-public final class FilteringIterator<T> implements Iterator<T>, Iterable<T>, AutoCloseable {
+public final class FilteringIterator<T> implements Iterator<T>, AutoCloseable {
 
-  public static interface Filter<T> {
+  public interface Filter<T> {
     boolean ok(T t);
   }
 
@@ -25,12 +25,7 @@ public final class FilteringIterator<T> implements Iterator<T>, Iterable<T>, Aut
   }
 
   public FilteringIterator(BurstIterator<T> dbIterator, int from, int to) {
-    this(dbIterator, new Filter<T>() {
-        @Override
-        public boolean ok(T t) {
-          return true;
-        }
-      }, from, to);
+    this(dbIterator, t -> true, from, to);
   }
 
   public FilteringIterator(BurstIterator<T> dbIterator, Filter<T> filter, int from, int to) {
@@ -88,15 +83,6 @@ public final class FilteringIterator<T> implements Iterator<T>, Iterable<T>, Aut
   @Override
   public void remove() {
     throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Iterator<T> iterator() {
-    if (iterated) {
-      throw new IllegalStateException("Already iterated");
-    }
-    iterated = true;
-    return this;
   }
 
 }

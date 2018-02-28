@@ -1,16 +1,20 @@
 package brs.peer;
 
+import brs.Blockchain;
+import brs.BlockchainProcessor;
+import brs.TransactionProcessor;
+import brs.services.AccountService;
+import brs.services.TimeService;
 import brs.util.CountingInputStream;
 import brs.util.CountingOutputStream;
 import brs.util.JSON;
 import org.eclipse.jetty.server.Response;
-import org.eclipse.jetty.servlets.gzip.CompressedResponseWrapper;
+import javax.servlet.http.HttpServletResponseWrapper;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
 import org.json.simple.JSONValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -21,6 +25,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+import static brs.Constants.*;
+
 public final class PeerServlet extends HttpServlet {
 
   private static final Logger logger = LoggerFactory.getLogger(PeerServlet.class);
@@ -29,22 +35,23 @@ public final class PeerServlet extends HttpServlet {
     abstract JSONStreamAware processRequest(JSONObject request, Peer peer);
   }
 
-  private static final Map<String,PeerRequestHandler> peerRequestHandlers;
+  private final Map<String,PeerRequestHandler> peerRequestHandlers;
 
-  static {
+  public PeerServlet(TimeService timeService, AccountService accountService, Blockchain blockchain, TransactionProcessor transactionProcessor,
+      BlockchainProcessor blockchainProcessor) {
     final Map<String,PeerRequestHandler> map = new HashMap<>();
     map.put("addPeers", AddPeers.instance);
-    map.put("getCumulativeDifficulty", GetCumulativeDifficulty.instance);
-    map.put("getInfo", GetInfo.instance);
-    map.put("getMilestoneBlockIds", GetMilestoneBlockIds.instance);
-    map.put("getNextBlockIds", GetNextBlockIds.instance);
-    map.put("getNextBlocks", GetNextBlocks.instance);
+    map.put("getCumulativeDifficulty", new GetCumulativeDifficulty(blockchain));
+    map.put("getInfo", new GetInfo(timeService));
+    map.put("getMilestoneBlockIds", new GetMilestoneBlockIds(blockchain));
+    map.put("getNextBlockIds", new GetNextBlockIds(blockchain));
+    map.put("getNextBlocks", new GetNextBlocks(blockchain));
     map.put("getPeers", GetPeers.instance);
-    map.put("getUnconfirmedTransactions", GetUnconfirmedTransactions.instance);
-    map.put("processBlock", ProcessBlock.instance);
-    map.put("processTransactions", ProcessTransactions.instance);
-    map.put("getAccountBalance", GetAccountBalance.instance);
-    map.put("getAccountRecentTransactions", GetAccountRecentTransactions.instance);
+    map.put("getUnconfirmedTransactions", new GetUnconfirmedTransactions(transactionProcessor));
+    map.put("processBlock", new ProcessBlock(blockchain, blockchainProcessor));
+    map.put("processTransactions", new ProcessTransactions(transactionProcessor));
+    map.put("getAccountBalance", new GetAccountBalance(accountService));
+    map.put("getAccountRecentTransactions", new GetAccountRecentTransactions(accountService, blockchain));
     peerRequestHandlers = Collections.unmodifiableMap(map);
   }
 
@@ -71,7 +78,7 @@ public final class PeerServlet extends HttpServlet {
   }
 
   @Override
-  protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+  protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
 
     PeerImpl peer = null;
     JSONStreamAware response;
@@ -94,7 +101,7 @@ public final class PeerServlet extends HttpServlet {
         return;
       }
 
-      if (peer.getState() == Peer.State.DISCONNECTED) {
+      if (peer.isState(Peer.State.DISCONNECTED)) {
         peer.setState(Peer.State.CONNECTED);
         if (peer.getAnnouncedAddress() != null) {
           Peers.updateAddress(peer);
@@ -106,15 +113,17 @@ public final class PeerServlet extends HttpServlet {
         return;
       }
 
-      if (request.get("protocol") != null && ((String)request.get("protocol")).equals("B1")) {
+      if (request.get(PROTOCOL) != null && request.get(PROTOCOL).equals("B1")) {
         PeerRequestHandler peerRequestHandler = peerRequestHandlers.get(request.get("requestType"));
         if (peerRequestHandler != null) {
           response = peerRequestHandler.processRequest(request, peer);
-        } else {
+        }
+        else {
           response = UNSUPPORTED_REQUEST_TYPE;
         }
-      } else {
-        logger.debug("Unsupported protocol " + request.get("protocol"));
+      }
+      else {
+        logger.debug("Unsupported protocol " + request.get(PROTOCOL));
         response = UNSUPPORTED_PROTOCOL;
       }
 
@@ -132,7 +141,7 @@ public final class PeerServlet extends HttpServlet {
         try (Writer writer = new OutputStreamWriter(resp.getOutputStream(), "UTF-8")) {
           response.writeJSONString(writer);
         }
-        byteCount = ((Response) ((CompressedResponseWrapper) resp).getResponse()).getContentCount();
+        byteCount = ((Response) ((HttpServletResponseWrapper) resp).getResponse()).getContentCount();
       } else {
         CountingOutputStream cos = new CountingOutputStream(resp.getOutputStream());
         try (Writer writer = new OutputStreamWriter(cos, "UTF-8")) {

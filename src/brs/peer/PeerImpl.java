@@ -61,6 +61,10 @@ final class PeerImpl implements Peer {
     return state;
   }
 
+  public boolean isState(State cmp_state) {
+    return state == cmp_state;
+  }
+  
   void setState(State state) {
     if (this.state == state) {
       return;
@@ -68,7 +72,8 @@ final class PeerImpl implements Peer {
     if (this.state == State.NON_CONNECTED) {
       this.state = state;
       Peers.notifyListeners(this, Peers.Event.ADDED_ACTIVE_PEER);
-    } else if (state != State.NON_CONNECTED) {
+    }
+    else if (state != State.NON_CONNECTED) {
       this.state = state;
       Peers.notifyListeners(this, Peers.Event.CHANGED_ACTIVE_PEER);
     }
@@ -206,11 +211,12 @@ final class PeerImpl implements Peer {
       hallmarkBalanceHeight = Burst.getBlockchain().getHeight();
     }
 
-    return (int)(adjustedWeight * (hallmarkBalance / Constants.ONE_NXT) / Constants.MAX_BALANCE_NXT);
+    return (int)(adjustedWeight * (hallmarkBalance / Constants.ONE_BURST) / Constants.MAX_BALANCE_BURST);
   }
 
   @Override
   public boolean isBlacklisted() {
+   // logger.debug("isBlacklisted - BL time: " + blacklistingTime + " Oldvers: " + isOldVersion + " PeerAddr: " + peerAddress);
     return blacklistingTime > 0 || isOldVersion || Peers.knownBlacklistedPeers.contains(peerAddress);
   }
 
@@ -302,6 +308,7 @@ final class PeerImpl implements Peer {
       connection.setConnectTimeout(Peers.connectTimeout);
       connection.setReadTimeout(Peers.readTimeout);
       connection.setRequestProperty("Accept-Encoding", "gzip");
+      connection.setRequestProperty("Connection", "close");
 
       CountingOutputStream cos = new CountingOutputStream(connection.getOutputStream());
       try (Writer writer = new BufferedWriter(new OutputStreamWriter(cos, "UTF-8"))) {
@@ -325,7 +332,7 @@ final class PeerImpl implements Peer {
             }
           }
           String responseValue = byteArrayOutputStream.toString("UTF-8");
-          if (responseValue.length() > 0 && responseStream instanceof GZIPInputStream) {
+          if (! responseValue.isEmpty() && responseStream instanceof GZIPInputStream) {
             log += String.format("[length: %d, compression ratio: %.2f]", cis.getCount(), (double)cis.getCount() / (double)responseValue.length());
           }
           log += " >>> " + responseValue;
@@ -349,7 +356,6 @@ final class PeerImpl implements Peer {
           setState(State.NON_CONNECTED);
         }
         response = null;
-
       }
 
     } catch (RuntimeException|IOException e) {
@@ -404,6 +410,7 @@ final class PeerImpl implements Peer {
       connection.setConnectTimeout(Peers.connectTimeout);
       connection.setReadTimeout(Peers.readTimeout);
       connection.setRequestProperty("Accept-Encoding", "gzip");
+      connection.setRequestProperty("Connection", "close");
 
       if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
         CountingInputStream cis = new CountingInputStream(connection.getInputStream());
@@ -421,7 +428,7 @@ final class PeerImpl implements Peer {
             }
           }
           String responseValue = byteArrayOutputStream.toString("UTF-8");
-          if (responseValue.length() > 0 && responseStream instanceof GZIPInputStream) {
+          if (! responseValue.isEmpty() && responseStream instanceof GZIPInputStream) {
             log += String.format("[length: %d, compression ratio: %.2f]", cis.getCount(), (double)cis.getCount() / (double)responseValue.length());
           }
           log += " >>> " + responseValue;
@@ -476,13 +483,14 @@ final class PeerImpl implements Peer {
   public int compareTo(Peer o) {
     if (getWeight() > o.getWeight()) {
       return -1;
-    } else if (getWeight() < o.getWeight()) {
+    }
+    else if (getWeight() < o.getWeight()) {
       return 1;
     }
     return 0;
   }
 
-  void connect() {
+  void connect(int currentTime) {
     JSONObject response = send(Peers.myPeerInfoRequest);
     if (response != null) {
       application = (String)response.get("application");
@@ -503,11 +511,13 @@ final class PeerImpl implements Peer {
       if (analyzeHallmark(announcedAddress, (String)response.get("hallmark"))) {
         setState(State.CONNECTED);
         Peers.updateAddress(this);
-      } else {
+      }
+      else {
         blacklist();
       }
-      lastUpdated = Burst.getEpochTime();
-    } else {
+      lastUpdated = currentTime;
+    }
+    else {
       setState(State.NON_CONNECTED);
     }
   }
@@ -564,7 +574,7 @@ final class PeerImpl implements Peer {
       }
 
       for (PeerImpl peer : groupedPeers) {
-        peer.adjustedWeight = Constants.MAX_BALANCE_NXT * peer.getHallmarkWeight(mostRecentDate) / totalWeight;
+        peer.adjustedWeight = Constants.MAX_BALANCE_BURST * peer.getHallmarkWeight(mostRecentDate) / totalWeight;
         Peers.notifyListeners(peer, Peers.Event.WEIGHT);
       }
 

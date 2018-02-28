@@ -52,7 +52,7 @@ final class H2DbVersion {
         }
         stmt.executeUpdate("UPDATE version SET next_update = next_update + 1");
         Db.commitTransaction();
-      } catch (Exception e) {
+      } catch (SQLException e) {
         Db.rollbackTransaction();
         throw e;
       }
@@ -218,7 +218,7 @@ final class H2DbVersion {
       case 54:
         apply("ALTER TABLE transaction ALTER COLUMN recipient_id SET NULL");
       case 55:
-        new SqlBlockDb().deleteAll();
+        new SqlBlockDb().deleteAll(true);
         apply(null);
       case 56:
         apply("CREATE INDEX IF NOT EXISTS transaction_recipient_id_idx ON transaction (recipient_id)");
@@ -496,6 +496,14 @@ final class H2DbVersion {
       case 162:
         apply("ALTER TABLE account DROP COLUMN IF EXISTS next_lessee_id");
       case 163:
+        apply("ALTER TABLE transaction ALTER COLUMN referenced_transaction_full_hash RENAME TO referenced_transaction_fullhash");
+      case 173:
+        apply("UPDATE \"version\" SET \"next_update\" = '173';");
+      case 174:
+        apply("ALTER TABLE alias ALTER COLUMN alias_name_LOWER RENAME TO alias_name_lower");
+      case 175:
+        apply("CREATE INDEX IF NOT EXISTS account_id_latest_idx ON account(id, latest)");
+      case 176:
         return;
       default:
         throw new RuntimeException("Database inconsistent with code, probably trying to run older code on newer database");

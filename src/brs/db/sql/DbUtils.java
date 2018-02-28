@@ -1,13 +1,10 @@
 package brs.db.sql;
 
+import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
-  
 import java.sql.SQLException;
-
-import org.jooq.impl.DSL;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.impl.TableImpl;
@@ -34,19 +31,10 @@ public final class DbUtils {
     }
   }
 
-  public static String quoteTableName(String table) {
-    switch (Db.getDatabaseType()) {
-      case FIREBIRD:
-        return table.equalsIgnoreCase("at") ? "\"" + table.toUpperCase() + "\"" : table;
-      default:
-        return table;
-    }
-  }
-
   public static void applyLimits(SelectQuery query, int from, int to ) {
     int limit = to >= 0 && to >= from && to < Integer.MAX_VALUE ? to - from + 1 : 0;
     if (limit > 0 && from > 0) {
-      query.addLimit(limit, from);
+      query.addLimit(from, limit);
     }
     else if (limit > 0) {
       query.addLimit(limit);
@@ -56,49 +44,10 @@ public final class DbUtils {
     }
   }
 
-  public static String limitsClause(int from, int to) {
-    int limit = to >= 0 && to >= from && to < Integer.MAX_VALUE ? to - from + 1 : 0;
-    switch (Db.getDatabaseType()) {
-      case FIREBIRD: {
-        if (limit > 0 && from > 0) {
-          return " ROWS ? TO ? ";
-        } else if (limit > 0) {
-          return " ROWS ? ";
-        } else if (from > 0) {
-          return " ROWS ? TO ? ";
-        } else {
-          return "";
-        }
-      }
-      default: {
-        if (limit > 0 && from > 0) {
-          return " LIMIT ? OFFSET ? ";
-        } else if (limit > 0) {
-          return " LIMIT ? ";
-        } else if (from > 0) {
-          return " OFFSET ? ";
-        } else {
-          return "";
-        }
-      }
-    }
-
-
-  }
-
-  public static void mergeInto(DSLContext ctx, Record record, TableImpl table, Field[] keyFields) throws SQLException {
-    ArrayList<Condition> conditions = new ArrayList<Condition>();
-    for ( Field field : keyFields ) {
-      conditions.add(field.eq(record.getValue(field)));
-    }
-
-    UpdateQuery updateQuery = ctx.updateQuery(table);
-    updateQuery.setRecord(record);
-    updateQuery.addConditions(conditions);
-    if ( updateQuery.execute() == 0 ) {
-      InsertQuery insertQuery = ctx.insertQuery(table);
-      insertQuery.setRecord(record);
-      insertQuery.execute();
-    }
+  public static void mergeInto(DSLContext ctx, Record record, TableImpl table, Field[] keyFields) {
+    // this is a hack .. we ignore always the first column on mergeInto commands to not fall over the db_id key
+    ctx.mergeInto(table, Arrays.copyOfRange(record.fields(), 1, record.fields().length))
+        .key(keyFields).values(Arrays.copyOfRange(record.valuesRow().fields(), 1, record.valuesRow().fields().length))
+        .execute();
   }
 }

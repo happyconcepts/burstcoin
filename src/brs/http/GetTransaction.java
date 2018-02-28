@@ -1,27 +1,33 @@
 package brs.http;
 
-import brs.Burst;
+import brs.Blockchain;
 import brs.Transaction;
+import brs.TransactionProcessor;
 import brs.util.Convert;
 import org.json.simple.JSONStreamAware;
 
 import javax.servlet.http.HttpServletRequest;
 
 import static brs.http.JSONResponses.*;
+import static brs.http.common.Parameters.FULL_HASH_PARAMETER;
+import static brs.http.common.Parameters.TRANSACTION_PARAMETER;
 
 public final class GetTransaction extends APIServlet.APIRequestHandler {
 
-  static final GetTransaction instance = new GetTransaction();
+  private final TransactionProcessor transactionProcessor;
+  private final Blockchain blockchain;
 
-  private GetTransaction() {
-    super(new APITag[] {APITag.TRANSACTIONS}, "transaction", "fullHash");
+  GetTransaction(TransactionProcessor transactionProcessor, Blockchain blockchain) {
+    super(new APITag[] {APITag.TRANSACTIONS}, TRANSACTION_PARAMETER, FULL_HASH_PARAMETER);
+    this.transactionProcessor = transactionProcessor;
+    this.blockchain = blockchain;
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) {
 
-    String transactionIdString = Convert.emptyToNull(req.getParameter("transaction"));
-    String transactionFullHash = Convert.emptyToNull(req.getParameter("fullHash"));
+    String transactionIdString = Convert.emptyToNull(req.getParameter(TRANSACTION_PARAMETER));
+    String transactionFullHash = Convert.emptyToNull(req.getParameter(FULL_HASH_PARAMETER));
     if (transactionIdString == null && transactionFullHash == null) {
       return MISSING_TRANSACTION;
     }
@@ -31,9 +37,9 @@ public final class GetTransaction extends APIServlet.APIRequestHandler {
     try {
       if (transactionIdString != null) {
         transactionId = Convert.parseUnsignedLong(transactionIdString);
-        transaction = Burst.getBlockchain().getTransaction(transactionId);
+        transaction = blockchain.getTransaction(transactionId);
       } else {
-        transaction = Burst.getBlockchain().getTransactionByFullHash(transactionFullHash);
+        transaction = blockchain.getTransactionByFullHash(transactionFullHash);
         if (transaction == null) {
           return UNKNOWN_TRANSACTION;
         }
@@ -43,13 +49,13 @@ public final class GetTransaction extends APIServlet.APIRequestHandler {
     }
 
     if (transaction == null) {
-      transaction = Burst.getTransactionProcessor().getUnconfirmedTransaction(transactionId);
+      transaction = transactionProcessor.getUnconfirmedTransaction(transactionId);
       if (transaction == null) {
         return UNKNOWN_TRANSACTION;
       }
       return JSONData.unconfirmedTransaction(transaction);
     } else {
-      return JSONData.transaction(transaction);
+      return JSONData.transaction(transaction, blockchain.getHeight());
     }
 
   }

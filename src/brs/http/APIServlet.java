@@ -1,28 +1,191 @@
 package brs.http;
 
+import static brs.http.JSONResponses.ERROR_INCORRECT_REQUEST;
+import static brs.http.JSONResponses.ERROR_NOT_ALLOWED;
+import static brs.http.JSONResponses.POST_REQUIRED;
+
+import brs.Blockchain;
+import brs.BlockchainProcessor;
 import brs.Burst;
 import brs.BurstException;
+import brs.EconomicClustering;
+import brs.Generator;
+import brs.TransactionProcessor;
+import brs.common.Props;
+import brs.services.ATService;
+import brs.services.AccountService;
+import brs.services.AliasService;
+import brs.services.AssetAccountService;
+import brs.services.AssetService;
+import brs.services.AssetTransferService;
+import brs.services.BlockService;
+import brs.services.DGSGoodsStoreService;
+import brs.services.EscrowService;
+import brs.services.OrderService;
+import brs.services.ParameterService;
+import brs.services.PropertyService;
+import brs.services.SubscriptionService;
+import brs.services.TimeService;
+import brs.services.TradeService;
+import brs.services.TransactionService;
 import brs.util.JSON;
 import brs.util.Subnet;
+import java.io.IOException;
+import java.io.Writer;
+import java.net.InetAddress;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.io.Writer;
-import java.net.InetAddress;
-import java.util.*;
-
-import static brs.http.JSONResponses.*;
-
 public final class APIServlet extends HttpServlet {
 
   private static final Logger logger = LoggerFactory.getLogger(APIServlet.class);
+
+  public APIServlet(TransactionProcessor transactionProcessor, Blockchain blockchain, BlockchainProcessor blockchainProcessor, ParameterService parameterService,
+      AccountService accountService, AliasService aliasService, OrderService orderService, AssetService assetService, AssetTransferService assetTransferService,
+      TradeService tradeService, EscrowService escrowService, DGSGoodsStoreService digitalGoodsStoreService, AssetAccountService assetAccountService,
+      SubscriptionService subscriptionService, ATService atService, TimeService timeService, EconomicClustering economicClustering, TransactionService transactionService,
+      BlockService blockService, Generator generator, PropertyService propertyService, APITransactionManager apiTransactionManager) {
+    enforcePost = propertyService.getBoolean(Props.API_SERVER_ENFORCE_POST);
+
+    final Map<String, APIRequestHandler> map = new HashMap<>();
+
+    map.put("broadcastTransaction", new BroadcastTransaction(transactionProcessor, parameterService, transactionService));
+    map.put("calculateFullHash", new CalculateFullHash());
+    map.put("cancelAskOrder", new CancelAskOrder(parameterService, blockchain, orderService, apiTransactionManager));
+    map.put("cancelBidOrder", new CancelBidOrder(parameterService, blockchain, orderService, apiTransactionManager));
+    //map.put("castVote", CastVote.instance);
+    //map.put("createPoll", CreatePoll.instance);
+    map.put("decryptFrom", new DecryptFrom(parameterService));
+    map.put("dgsListing", new DGSListing(parameterService, blockchain, apiTransactionManager));
+    map.put("dgsDelisting", new DGSDelisting(parameterService, blockchain, apiTransactionManager));
+    map.put("dgsDelivery", new DGSDelivery(parameterService, blockchain, accountService, apiTransactionManager));
+    map.put("dgsFeedback", new DGSFeedback(parameterService, blockchain, accountService, apiTransactionManager));
+    map.put("dgsPriceChange", new DGSPriceChange(parameterService, blockchain, apiTransactionManager));
+    map.put("dgsPurchase", new DGSPurchase(parameterService, blockchain, accountService, timeService, apiTransactionManager));
+    map.put("dgsQuantityChange", new DGSQuantityChange(parameterService, blockchain, apiTransactionManager));
+    map.put("dgsRefund", new DGSRefund(parameterService, blockchain, accountService, apiTransactionManager));
+    map.put("decodeHallmark", new DecodeHallmark());
+    map.put("decodeToken", new DecodeToken());
+    map.put("encryptTo", new EncryptTo(parameterService, accountService));
+    map.put("generateToken", new GenerateToken(timeService));
+    map.put("getAccount", new GetAccount(parameterService, accountService));
+    map.put("getAccountBlockIds", new GetAccountBlockIds(parameterService, blockchain));
+    map.put("getAccountBlocks", new GetAccountBlocks(blockchain, parameterService, blockService));
+    map.put("getAccountId", new GetAccountId());
+    map.put("getAccountPublicKey", new GetAccountPublicKey(parameterService));
+    map.put("getAccountTransactionIds", new GetAccountTransactionIds(parameterService, blockchain));
+    map.put("getAccountTransactions", new GetAccountTransactions(parameterService, blockchain));
+    map.put("getAccountLessors", new GetAccountLessors(parameterService, blockchain));
+    map.put("sellAlias", new SellAlias(parameterService, blockchain, apiTransactionManager));
+    map.put("buyAlias", new BuyAlias(parameterService, blockchain, aliasService, apiTransactionManager));
+    map.put("getAlias", new GetAlias(parameterService, aliasService));
+    map.put("getAliases", new GetAliases(parameterService, aliasService));
+    map.put("getAllAssets", new GetAllAssets(assetService, assetAccountService, assetTransferService, tradeService));
+    map.put("getAsset", new GetAsset(parameterService, assetAccountService, assetTransferService, tradeService));
+    map.put("getAssets", new GetAssets(assetService, assetAccountService, assetTransferService, tradeService));
+    map.put("getAssetIds", new GetAssetIds(assetService));
+    map.put("getAssetsByIssuer", new GetAssetsByIssuer(parameterService, assetService, tradeService, assetTransferService, assetAccountService));
+    map.put("getAssetAccounts", new GetAssetAccounts(parameterService, assetService));
+    map.put("getBalance", new GetBalance(parameterService));
+    map.put("getBlock", new GetBlock(blockchain, blockService));
+    map.put("getBlockId", new GetBlockId(blockchain));
+    map.put("getBlocks", new GetBlocks(blockchain, blockService));
+    map.put("getBlockchainStatus", new GetBlockchainStatus(blockchainProcessor, blockchain, timeService));
+    map.put("getConstants", GetConstants.instance);
+    map.put("getDGSGoods", new GetDGSGoods(digitalGoodsStoreService));
+    map.put("getDGSGood", new GetDGSGood(parameterService));
+    map.put("getDGSPurchases", new GetDGSPurchases(digitalGoodsStoreService));
+    map.put("getDGSPurchase", new GetDGSPurchase(parameterService));
+    map.put("getDGSPendingPurchases", new GetDGSPendingPurchases(digitalGoodsStoreService));
+    map.put("getGuaranteedBalance", new GetGuaranteedBalance(parameterService));
+    map.put("getECBlock", new GetECBlock(blockchain, timeService, economicClustering));
+    map.put("getMyInfo", GetMyInfo.instance);
+    //map.put("getNextBlockGenerators", GetNextBlockGenerators.instance);
+    map.put("getPeer", GetPeer.instance);
+    map.put("getPeers", GetPeers.instance);
+    //map.put("getPoll", GetPoll.instance);
+    //map.put("getPollIds", GetPollIds.instance);
+    map.put("getState", new GetState(blockchain, tradeService, accountService, escrowService, orderService, assetTransferService, aliasService, timeService, assetService, generator));
+    map.put("getTime", new GetTime(timeService));
+    map.put("getTrades", new GetTrades(parameterService, assetService, tradeService));
+    map.put("getAllTrades", new GetAllTrades(tradeService, assetService));
+    map.put("getAssetTransfers", new GetAssetTransfers(parameterService, accountService, assetService, assetTransferService));
+    map.put("getTransaction", new GetTransaction(transactionProcessor, blockchain));
+    map.put("getTransactionBytes", new GetTransactionBytes(blockchain, transactionProcessor));
+    map.put("getUnconfirmedTransactionIds", new GetUnconfirmedTransactionIds(transactionProcessor));
+    map.put("getUnconfirmedTransactions", new GetUnconfirmedTransactions(transactionProcessor));
+    map.put("getAccountCurrentAskOrderIds", new GetAccountCurrentAskOrderIds(parameterService, orderService));
+    map.put("getAccountCurrentBidOrderIds", new GetAccountCurrentBidOrderIds(parameterService, orderService));
+    map.put("getAccountCurrentAskOrders", new GetAccountCurrentAskOrders(parameterService, orderService));
+    map.put("getAccountCurrentBidOrders", new GetAccountCurrentBidOrders(parameterService, orderService));
+    map.put("getAllOpenAskOrders", new GetAllOpenAskOrders(orderService));
+    map.put("getAllOpenBidOrders", new GetAllOpenBidOrders(orderService));
+    map.put("getAskOrder", new GetAskOrder(orderService));
+    map.put("getAskOrderIds", new GetAskOrderIds(parameterService, orderService));
+    map.put("getAskOrders", new GetAskOrders(parameterService, orderService));
+    map.put("getBidOrder", new GetBidOrder(orderService));
+    map.put("getBidOrderIds", new GetBidOrderIds(parameterService, orderService));
+    map.put("getBidOrders", new GetBidOrders(parameterService, orderService));
+    map.put("issueAsset", new IssueAsset(parameterService, blockchain, apiTransactionManager));
+    map.put("leaseBalance", new LeaseBalance(parameterService, blockchain, accountService, apiTransactionManager));
+    map.put("longConvert", LongConvert.instance);
+    map.put("markHost", MarkHost.instance);
+    map.put("parseTransaction", new ParseTransaction(parameterService, transactionService));
+    map.put("placeAskOrder", new PlaceAskOrder(parameterService, blockchain, apiTransactionManager));
+    map.put("placeBidOrder", new PlaceBidOrder(parameterService, blockchain, apiTransactionManager));
+    map.put("rsConvert", RSConvert.instance);
+    map.put("readMessage", new ReadMessage(blockchain, accountService));
+    map.put("sendMessage", new SendMessage(parameterService, apiTransactionManager));
+    map.put("sendMoney", new SendMoney(parameterService, apiTransactionManager));
+    map.put("setAccountInfo", new SetAccountInfo(parameterService, blockchain, apiTransactionManager));
+    map.put("setAlias", new SetAlias(parameterService, blockchain, aliasService, apiTransactionManager));
+    map.put("signTransaction", new SignTransaction(parameterService, transactionService));
+    //map.put("startForging", StartForging.instance);
+    //map.put("stopForging", StopForging.instance);
+    //map.put("getForging", GetForging.instance);
+    map.put("transferAsset", new TransferAsset(parameterService, blockchain, apiTransactionManager));
+    map.put("getMiningInfo", new GetMiningInfo(blockchain));
+    map.put("submitNonce", new SubmitNonce(accountService, blockchain, generator));
+    map.put("getRewardRecipient", new GetRewardRecipient(parameterService, blockchain));
+    map.put("setRewardRecipient", new SetRewardRecipient(parameterService, blockchain, accountService, apiTransactionManager));
+    map.put("getAccountsWithRewardRecipient", new GetAccountsWithRewardRecipient(parameterService, accountService));
+    map.put("sendMoneyEscrow", new SendMoneyEscrow(parameterService, blockchain, apiTransactionManager));
+    map.put("escrowSign", new EscrowSign(parameterService, blockchain, escrowService, apiTransactionManager));
+    map.put("getEscrowTransaction", new GetEscrowTransaction(escrowService));
+    map.put("getAccountEscrowTransactions", new GetAccountEscrowTransactions(parameterService, escrowService));
+    map.put("sendMoneySubscription", new SendMoneySubscription(parameterService, blockchain, apiTransactionManager));
+    map.put("subscriptionCancel", new SubscriptionCancel(parameterService, subscriptionService, blockchain, apiTransactionManager));
+    map.put("getSubscription", new GetSubscription(subscriptionService));
+    map.put("getAccountSubscriptions", new GetAccountSubscriptions(parameterService, subscriptionService));
+    map.put("getSubscriptionsToAccount", new GetSubscriptionsToAccount(parameterService, subscriptionService));
+    map.put("createATProgram", new CreateATProgram(parameterService, blockchain, apiTransactionManager));
+    map.put("getAT", new GetAT(parameterService, accountService));
+    map.put("getATDetails", new GetATDetails(parameterService, accountService));
+    map.put("getATIds", new GetATIds(atService));
+    map.put("getATLong", GetATLong.instance);
+    map.put("getAccountATs", new GetAccountATs(parameterService, atService, accountService));
+
+    if (API.enableDebugAPI) {
+      map.put("clearUnconfirmedTransactions", new ClearUnconfirmedTransactions(transactionProcessor));
+      map.put("fullReset", new FullReset(blockchainProcessor));
+      map.put("popOff", new PopOff(blockchainProcessor, blockchain, blockService));
+      map.put("scan", new Scan(blockchainProcessor, blockchain));
+    }
+
+    apiRequestHandlers = Collections.unmodifiableMap(map);
+  }
 
   abstract static class APIRequestHandler {
 
@@ -54,147 +217,17 @@ public final class APIServlet extends HttpServlet {
 
   }
 
-  private static final boolean enforcePost = Burst.getBooleanProperty("brs.apiServerEnforcePOST");
+  private static boolean enforcePost;
 
-  static final Map<String,APIRequestHandler> apiRequestHandlers;
-
-  static {
-
-    final Map<String,APIRequestHandler> map = new HashMap<>();
-
-    map.put("broadcastTransaction", BroadcastTransaction.instance);
-    map.put("calculateFullHash", CalculateFullHash.instance);
-    map.put("cancelAskOrder", CancelAskOrder.instance);
-    map.put("cancelBidOrder", CancelBidOrder.instance);
-    //map.put("castVote", CastVote.instance);
-    //map.put("createPoll", CreatePoll.instance);
-    map.put("decryptFrom", DecryptFrom.instance);
-    map.put("dgsListing", DGSListing.instance);
-    map.put("dgsDelisting", DGSDelisting.instance);
-    map.put("dgsDelivery", DGSDelivery.instance);
-    map.put("dgsFeedback", DGSFeedback.instance);
-    map.put("dgsPriceChange", DGSPriceChange.instance);
-    map.put("dgsPurchase", DGSPurchase.instance);
-    map.put("dgsQuantityChange", DGSQuantityChange.instance);
-    map.put("dgsRefund", DGSRefund.instance);
-    map.put("decodeHallmark", DecodeHallmark.instance);
-    map.put("decodeToken", DecodeToken.instance);
-    map.put("encryptTo", EncryptTo.instance);
-    map.put("generateToken", GenerateToken.instance);
-    map.put("getAccount", GetAccount.instance);
-    map.put("getAccountBlockIds", GetAccountBlockIds.instance);
-    map.put("getAccountBlocks", GetAccountBlocks.instance);
-    map.put("getAccountId", GetAccountId.instance);
-    map.put("getAccountPublicKey", GetAccountPublicKey.instance);
-    map.put("getAccountTransactionIds", GetAccountTransactionIds.instance);
-    map.put("getAccountTransactions", GetAccountTransactions.instance);
-    map.put("getAccountLessors", GetAccountLessors.instance);
-    map.put("sellAlias", SellAlias.instance);
-    map.put("buyAlias", BuyAlias.instance);
-    map.put("getAlias", GetAlias.instance);
-    map.put("getAliases", GetAliases.instance);
-    map.put("getAllAssets", GetAllAssets.instance);
-    map.put("getAsset", GetAsset.instance);
-    map.put("getAssets", GetAssets.instance);
-    map.put("getAssetIds", GetAssetIds.instance);
-    map.put("getAssetsByIssuer", GetAssetsByIssuer.instance);
-    map.put("getAssetAccounts", GetAssetAccounts.instance);
-    map.put("getBalance", GetBalance.instance);
-    map.put("getBlock", GetBlock.instance);
-    map.put("getBlockId", GetBlockId.instance);
-    map.put("getBlocks", GetBlocks.instance);
-    map.put("getBlockchainStatus", GetBlockchainStatus.instance);
-    map.put("getConstants", GetConstants.instance);
-    map.put("getDGSGoods", GetDGSGoods.instance);
-    map.put("getDGSGood", GetDGSGood.instance);
-    map.put("getDGSPurchases", GetDGSPurchases.instance);
-    map.put("getDGSPurchase", GetDGSPurchase.instance);
-    map.put("getDGSPendingPurchases", GetDGSPendingPurchases.instance);
-    map.put("getGuaranteedBalance", GetGuaranteedBalance.instance);
-    map.put("getECBlock", GetECBlock.instance);
-    map.put("getMyInfo", GetMyInfo.instance);
-    //map.put("getNextBlockGenerators", GetNextBlockGenerators.instance);
-    map.put("getPeer", GetPeer.instance);
-    map.put("getPeers", GetPeers.instance);
-    //map.put("getPoll", GetPoll.instance);
-    //map.put("getPollIds", GetPollIds.instance);
-    map.put("getState", GetState.instance);
-    map.put("getTime", GetTime.instance);
-    map.put("getTrades", GetTrades.instance);
-    map.put("getAllTrades", GetAllTrades.instance);
-    map.put("getAssetTransfers", GetAssetTransfers.instance);
-    map.put("getTransaction", GetTransaction.instance);
-    map.put("getTransactionBytes", GetTransactionBytes.instance);
-    map.put("getUnconfirmedTransactionIds", GetUnconfirmedTransactionIds.instance);
-    map.put("getUnconfirmedTransactions", GetUnconfirmedTransactions.instance);
-    map.put("getAccountCurrentAskOrderIds", GetAccountCurrentAskOrderIds.instance);
-    map.put("getAccountCurrentBidOrderIds", GetAccountCurrentBidOrderIds.instance);
-    map.put("getAccountCurrentAskOrders", GetAccountCurrentAskOrders.instance);
-    map.put("getAccountCurrentBidOrders", GetAccountCurrentBidOrders.instance);
-    map.put("getAllOpenAskOrders", GetAllOpenAskOrders.instance);
-    map.put("getAllOpenBidOrders", GetAllOpenBidOrders.instance);
-    map.put("getAskOrder", GetAskOrder.instance);
-    map.put("getAskOrderIds", GetAskOrderIds.instance);
-    map.put("getAskOrders", GetAskOrders.instance);
-    map.put("getBidOrder", GetBidOrder.instance);
-    map.put("getBidOrderIds", GetBidOrderIds.instance);
-    map.put("getBidOrders", GetBidOrders.instance);
-    map.put("issueAsset", IssueAsset.instance);
-    map.put("leaseBalance", LeaseBalance.instance);
-    map.put("longConvert", LongConvert.instance);
-    map.put("markHost", MarkHost.instance);
-    map.put("parseTransaction", ParseTransaction.instance);
-    map.put("placeAskOrder", PlaceAskOrder.instance);
-    map.put("placeBidOrder", PlaceBidOrder.instance);
-    map.put("rsConvert", RSConvert.instance);
-    map.put("readMessage", ReadMessage.instance);
-    map.put("sendMessage", SendMessage.instance);
-    map.put("sendMoney", SendMoney.instance);
-    map.put("setAccountInfo", SetAccountInfo.instance);
-    map.put("setAlias", SetAlias.instance);
-    map.put("signTransaction", SignTransaction.instance);
-    //map.put("startForging", StartForging.instance);
-    //map.put("stopForging", StopForging.instance);
-    //map.put("getForging", GetForging.instance);
-    map.put("transferAsset", TransferAsset.instance);
-    map.put("getMiningInfo", GetMiningInfo.instance);
-    map.put("submitNonce", SubmitNonce.instance);
-    map.put("getRewardRecipient", GetRewardRecipient.instance);
-    map.put("setRewardRecipient", SetRewardRecipient.instance);
-    map.put("getAccountsWithRewardRecipient", GetAccountsWithRewardRecipient.instance);
-    map.put("sendMoneyEscrow", SendMoneyEscrow.instance);
-    map.put("escrowSign", EscrowSign.instance);
-    map.put("getEscrowTransaction", GetEscrowTransaction.instance);
-    map.put("getAccountEscrowTransactions", GetAccountEscrowTransactions.instance);
-    map.put("sendMoneySubscription", SendMoneySubscription.instance);
-    map.put("subscriptionCancel", SubscriptionCancel.instance);
-    map.put("getSubscription", GetSubscription.instance);
-    map.put("getAccountSubscriptions", GetAccountSubscriptions.instance);
-    map.put("getSubscriptionsToAccount", GetSubscriptionsToAccount.instance);
-    map.put("createATProgram", CreateATProgram.instance);
-    map.put("getAT", GetAT.instance);
-    map.put("getATDetails", GetATDetails.instance);
-    map.put("getATIds", GetATIds.instance);
-    map.put("getATLong", GetATLong.instance);
-    map.put("getAccountATs", GetAccountATs.instance);
-
-    if (API.enableDebugAPI) {
-      map.put("clearUnconfirmedTransactions", ClearUnconfirmedTransactions.instance);
-      map.put("fullReset", FullReset.instance);
-      map.put("popOff", PopOff.instance);
-      map.put("scan", Scan.instance);
-    }
-
-    apiRequestHandlers = Collections.unmodifiableMap(map);
-  }
+  static Map<String, APIRequestHandler> apiRequestHandlers;
 
   @Override
-  protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+  protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
     process(req, resp);
   }
 
   @Override
-  protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+  protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
     process(req, resp);
   }
 
@@ -207,27 +240,23 @@ public final class APIServlet extends HttpServlet {
     JSONStreamAware response = JSON.emptyJSON;
 
     try {
-        	
+
       long startTime = System.currentTimeMillis();
 
-      if (API.allowedBotHosts != null)
-        {
-          InetAddress remoteAddress = InetAddress.getByName(req.getRemoteHost());
-          boolean allowed = false;
-          for (Subnet allowedSubnet: API.allowedBotHosts)
-            {
-              if (allowedSubnet.isInNet(remoteAddress))
-                {
-                  allowed = true;
-                  break;
-                }
-            }
-          if (!allowed)
-            {
-              response = ERROR_NOT_ALLOWED;
-              return;
-            }
+      if (API.allowedBotHosts != null) {
+        InetAddress remoteAddress = InetAddress.getByName(req.getRemoteHost());
+        boolean allowed = false;
+        for (Subnet allowedSubnet : API.allowedBotHosts) {
+          if (allowedSubnet.isInNet(remoteAddress)) {
+            allowed = true;
+            break;
+          }
         }
+        if (!allowed) {
+          response = ERROR_NOT_ALLOWED;
+          return;
+        }
+      }
 
       String requestType = req.getParameter("requestType");
       if (requestType == null) {
@@ -241,7 +270,7 @@ public final class APIServlet extends HttpServlet {
         return;
       }
 
-      if (enforcePost && apiRequestHandler.requirePost() && ! "POST".equals(req.getMethod())) {
+      if (enforcePost && apiRequestHandler.requirePost() && !"POST".equals(req.getMethod())) {
         response = POST_REQUIRED;
         return;
       }
@@ -253,7 +282,7 @@ public final class APIServlet extends HttpServlet {
         response = apiRequestHandler.processRequest(req);
       } catch (ParameterException e) {
         response = e.getErrorResponse();
-      } catch (BurstException |RuntimeException e) {
+      } catch (BurstException | RuntimeException e) {
         logger.debug("Error processing API request", e);
         response = ERROR_INCORRECT_REQUEST;
       } finally {
@@ -261,9 +290,9 @@ public final class APIServlet extends HttpServlet {
           Burst.getStores().endTransaction();
         }
       }
-            
+
       if (response instanceof JSONObject) {
-        ((JSONObject)response).put("requestProcessingTime", System.currentTimeMillis() - startTime);
+        ((JSONObject) response).put("requestProcessingTime", System.currentTimeMillis() - startTime);
       }
 
     } finally {

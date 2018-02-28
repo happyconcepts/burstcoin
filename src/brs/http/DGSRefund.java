@@ -1,27 +1,36 @@
 package brs.http;
 
 import brs.*;
+import brs.services.AccountService;
+import brs.services.ParameterService;
+import brs.services.TransactionService;
 import brs.util.Convert;
 import org.json.simple.JSONStreamAware;
 
 import javax.servlet.http.HttpServletRequest;
 
 import static brs.http.JSONResponses.*;
+import static brs.http.common.Parameters.PURCHASE_PARAMETER;
+import static brs.http.common.Parameters.REFUND_NQT_PARAMETER;
 
 public final class DGSRefund extends CreateTransaction {
 
-  static final DGSRefund instance = new DGSRefund();
+  private final ParameterService parameterService;
+  private final AccountService accountService;
+  private final Blockchain blockchain;
 
-  private DGSRefund() {
-    super(new APITag[] {APITag.DGS, APITag.CREATE_TRANSACTION},
-          "purchase", "refundNQT");
+  DGSRefund(ParameterService parameterService, Blockchain blockchain, AccountService accountService, APITransactionManager apiTransactionManager) {
+    super(new APITag[] {APITag.DGS, APITag.CREATE_TRANSACTION}, apiTransactionManager, PURCHASE_PARAMETER, REFUND_NQT_PARAMETER);
+    this.parameterService = parameterService;
+    this.accountService = accountService;
+    this.blockchain = blockchain;
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) throws BurstException {
+    Account sellerAccount = parameterService.getSenderAccount(req);
+    DigitalGoodsStore.Purchase purchase = parameterService.getPurchase(req);
 
-    Account sellerAccount = ParameterParser.getSenderAccount(req);
-    DigitalGoodsStore.Purchase purchase = ParameterParser.getPurchase(req);
     if (sellerAccount.getId() != purchase.getSellerId()) {
       return INCORRECT_PURCHASE;
     }
@@ -32,7 +41,7 @@ public final class DGSRefund extends CreateTransaction {
       return GOODS_NOT_DELIVERED;
     }
 
-    String refundValueNQT = Convert.emptyToNull(req.getParameter("refundNQT"));
+    String refundValueNQT = Convert.emptyToNull(req.getParameter(REFUND_NQT_PARAMETER));
     long refundNQT = 0;
     try {
       if (refundValueNQT != null) {
@@ -45,9 +54,9 @@ public final class DGSRefund extends CreateTransaction {
       return INCORRECT_DGS_REFUND;
     }
 
-    Account buyerAccount = Account.getAccount(purchase.getBuyerId());
+    Account buyerAccount = accountService.getAccount(purchase.getBuyerId());
 
-    Attachment attachment = new Attachment.DigitalGoodsRefund(purchase.getId(), refundNQT);
+    Attachment attachment = new Attachment.DigitalGoodsRefund(purchase.getId(), refundNQT, blockchain.getHeight());
     return createTransaction(req, sellerAccount, buyerAccount.getId(), 0, attachment);
 
   }

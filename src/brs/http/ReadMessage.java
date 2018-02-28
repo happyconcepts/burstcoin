@@ -2,9 +2,10 @@ package brs.http;
 
 import brs.Account;
 import brs.Appendix;
-import brs.Burst;
+import brs.Blockchain;
 import brs.Transaction;
 import brs.crypto.Crypto;
+import brs.services.AccountService;
 import brs.util.Convert;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
@@ -14,28 +15,34 @@ import org.slf4j.LoggerFactory;
 import javax.servlet.http.HttpServletRequest;
 
 import static brs.http.JSONResponses.*;
+import static brs.http.common.Parameters.SECRET_PHRASE_PARAMETER;
+import static brs.http.common.Parameters.TRANSACTION_PARAMETER;
 
 public final class ReadMessage extends APIServlet.APIRequestHandler {
 
   private static final Logger logger = LoggerFactory.getLogger(ReadMessage.class);
 
-  static final ReadMessage instance = new ReadMessage();
+  private final Blockchain blockchain;
 
-  private ReadMessage() {
-    super(new APITag[] {APITag.MESSAGES}, "transaction", "secretPhrase");
+  private final AccountService accountService;
+
+  ReadMessage(Blockchain blockchain, AccountService accountService) {
+    super(new APITag[] {APITag.MESSAGES}, TRANSACTION_PARAMETER, SECRET_PHRASE_PARAMETER);
+    this.blockchain = blockchain;
+    this.accountService = accountService;
   }
 
   @Override
-  JSONStreamAware processRequest(HttpServletRequest req) throws ParameterException {
+  JSONStreamAware processRequest(HttpServletRequest req) {
 
-    String transactionIdString = Convert.emptyToNull(req.getParameter("transaction"));
+    String transactionIdString = Convert.emptyToNull(req.getParameter(TRANSACTION_PARAMETER));
     if (transactionIdString == null) {
       return MISSING_TRANSACTION;
     }
 
     Transaction transaction;
     try {
-      transaction = Burst.getBlockchain().getTransaction(Convert.parseUnsignedLong(transactionIdString));
+      transaction = blockchain.getTransaction(Convert.parseUnsignedLong(transactionIdString));
       if (transaction == null) {
         return UNKNOWN_TRANSACTION;
       }
@@ -44,7 +51,7 @@ public final class ReadMessage extends APIServlet.APIRequestHandler {
     }
 
     JSONObject response = new JSONObject();
-    Account senderAccount = Account.getAccount(transaction.getSenderId());
+    Account senderAccount = accountService.getAccount(transaction.getSenderId());
     Appendix.Message message = transaction.getMessage();
     Appendix.EncryptedMessage encryptedMessage = transaction.getEncryptedMessage();
     Appendix.EncryptToSelfMessage encryptToSelfMessage = transaction.getEncryptToSelfMessage();
@@ -54,11 +61,11 @@ public final class ReadMessage extends APIServlet.APIRequestHandler {
     if (message != null) {
       response.put("message", message.isText() ? Convert.toString(message.getMessage()) : Convert.toHexString(message.getMessage()));
     }
-    String secretPhrase = Convert.emptyToNull(req.getParameter("secretPhrase"));
+    String secretPhrase = Convert.emptyToNull(req.getParameter(SECRET_PHRASE_PARAMETER));
     if (secretPhrase != null) {
       if (encryptedMessage != null) {
         long readerAccountId = Account.getId(Crypto.getPublicKey(secretPhrase));
-        Account account = senderAccount.getId() == readerAccountId ? Account.getAccount(transaction.getRecipientId()) : senderAccount;
+        Account account = senderAccount.getId() == readerAccountId ? accountService.getAccount(transaction.getRecipientId()) : senderAccount;
         if (account != null) {
           try {
             byte[] decrypted = account.decryptFrom(encryptedMessage.getEncryptedData(), secretPhrase);
@@ -69,7 +76,7 @@ public final class ReadMessage extends APIServlet.APIRequestHandler {
         }
       }
       if (encryptToSelfMessage != null) {
-        Account account = Account.getAccount(Crypto.getPublicKey(secretPhrase));
+        Account account = accountService.getAccount(Crypto.getPublicKey(secretPhrase));
         if (account != null) {
           try {
             byte[] decrypted = account.decryptFrom(encryptToSelfMessage.getEncryptedData(), secretPhrase);

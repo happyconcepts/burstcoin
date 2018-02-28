@@ -2,8 +2,13 @@ package brs.http;
 
 import brs.Account;
 import brs.Attachment;
+import brs.Blockchain;
 import brs.Constants;
 import brs.BurstException;
+import brs.TransactionProcessor;
+import brs.services.AccountService;
+import brs.services.ParameterService;
+import brs.services.TransactionService;
 import brs.util.Convert;
 import org.json.simple.JSONStreamAware;
 
@@ -11,20 +16,25 @@ import javax.servlet.http.HttpServletRequest;
 
 import static brs.http.JSONResponses.INCORRECT_ACCOUNT_DESCRIPTION_LENGTH;
 import static brs.http.JSONResponses.INCORRECT_ACCOUNT_NAME_LENGTH;
+import static brs.http.common.Parameters.DESCRIPTION_PARAMETER;
+import static brs.http.common.Parameters.NAME_PARAMETER;
 
 public final class SetAccountInfo extends CreateTransaction {
 
-  static final SetAccountInfo instance = new SetAccountInfo();
+  private final ParameterService parameterService;
+  private final Blockchain blockchain;
 
-  private SetAccountInfo() {
-    super(new APITag[] {APITag.ACCOUNTS, APITag.CREATE_TRANSACTION}, "name", "description");
+  public SetAccountInfo(ParameterService parameterService, Blockchain blockchain, APITransactionManager apiTransactionManager) {
+    super(new APITag[] {APITag.ACCOUNTS, APITag.CREATE_TRANSACTION}, apiTransactionManager, NAME_PARAMETER, DESCRIPTION_PARAMETER);
+    this.parameterService = parameterService;
+    this.blockchain = blockchain;
   }
 
   @Override
   JSONStreamAware processRequest(HttpServletRequest req) throws BurstException {
 
-    String name = Convert.nullToEmpty(req.getParameter("name")).trim();
-    String description = Convert.nullToEmpty(req.getParameter("description")).trim();
+    String name = Convert.nullToEmpty(req.getParameter(NAME_PARAMETER)).trim();
+    String description = Convert.nullToEmpty(req.getParameter(DESCRIPTION_PARAMETER)).trim();
 
     if (name.length() > Constants.MAX_ACCOUNT_NAME_LENGTH) {
       return INCORRECT_ACCOUNT_NAME_LENGTH;
@@ -34,8 +44,8 @@ public final class SetAccountInfo extends CreateTransaction {
       return INCORRECT_ACCOUNT_DESCRIPTION_LENGTH;
     }
 
-    Account account = ParameterParser.getSenderAccount(req);
-    Attachment attachment = new Attachment.MessagingAccountInfo(name, description);
+    Account account = parameterService.getSenderAccount(req);
+    Attachment attachment = new Attachment.MessagingAccountInfo(name, description, blockchain.getHeight());
     return createTransaction(req, account, attachment);
 
   }

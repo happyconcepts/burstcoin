@@ -1,29 +1,22 @@
 package brs.db.sql;
 
-import com.codahale.metrics.Timer;
-import brs.Burst;
 import brs.db.DerivedTable;
+import brs.db.store.DerivedTableManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.sql.SQLException;
-
 import org.jooq.impl.TableImpl;
 import org.jooq.DSLContext;
-import org.jooq.Condition;
 
 public abstract class DerivedSqlTable implements DerivedTable {
-  //    private final Timer rollbackTimer;
-  //    private final Timer truncateTimer;
   private static final Logger logger = LoggerFactory.getLogger(DerivedSqlTable.class);
   protected final String table;
   protected final TableImpl<?> tableClass;
 
-  protected DerivedSqlTable(String table, TableImpl<?> tableClass) {
+  protected DerivedSqlTable(String table, TableImpl<?> tableClass, DerivedTableManager derivedTableManager) {
     this.table      = table;
     this.tableClass = tableClass;
     logger.trace("Creating derived table for "+table);
-    Burst.getBlockchainProcessor().registerDerivedTable(this);
+    derivedTableManager.registerDerivedTable(this);
   }
 
   @Override
@@ -31,15 +24,8 @@ public abstract class DerivedSqlTable implements DerivedTable {
     if (!Db.isInTransaction()) {
       throw new IllegalStateException("Not in transaction");
     }
-    try ( DSLContext ctx = Db.getDSLContext() ) {
-      ctx.delete(tableClass).where(tableClass.field("height", Integer.class).gt(height));
-    }
-    catch (SQLException e) {
-      throw new RuntimeException(e.toString(), e);
-    }
-    finally {
-      //            context.stop();
-    }
+    DSLContext ctx = Db.getDSLContext();
+    ctx.delete(tableClass).where(tableClass.field("height", Integer.class).gt(height)).execute();
   }
 
   @Override
@@ -47,13 +33,8 @@ public abstract class DerivedSqlTable implements DerivedTable {
     if (!Db.isInTransaction()) {
       throw new IllegalStateException("Not in transaction");
     }
-    //        final Timer.Context context = truncateTimer.time();
-    try (DSLContext ctx = Db.getDSLContext() ) {
-      ctx.delete(tableClass).execute();
-    }
-    catch (SQLException e) {
-      throw new RuntimeException(e.toString(), e);
-    }
+    DSLContext ctx = Db.getDSLContext();
+    ctx.delete(tableClass).execute();
   }
 
   @Override
