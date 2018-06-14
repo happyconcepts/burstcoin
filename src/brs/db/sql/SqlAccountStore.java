@@ -11,9 +11,9 @@ import brs.db.store.DerivedTableManager;
 import brs.schema.tables.records.AccountRecord;
 import brs.util.Convert;
 import java.util.stream.Collectors;
-import org.ehcache.Cache;
 import org.jooq.BatchBindStep;
 import org.jooq.Cursor;
+import org.jooq.Query;
 import org.slf4j.LoggerFactory;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -38,7 +38,7 @@ public class SqlAccountStore implements AccountStore {
     = new DbKey.LongKeyFactory<Account.RewardRecipientAssignment>("account_id") {
         @Override
         public DbKey newKey(Account.RewardRecipientAssignment assignment) {
-          return (DbKey) assignment.nxtKey;
+          return (DbKey) assignment.burstKey;
         }
       };
   private static final org.slf4j.Logger logger = LoggerFactory.getLogger(SqlAccountStore.class);
@@ -46,7 +46,7 @@ public class SqlAccountStore implements AccountStore {
     = new DbKey.LinkKeyFactory<Account.AccountAsset>("account_id", "asset_id") {
         @Override
         public DbKey newKey(Account.AccountAsset accountAsset) {
-          return (DbKey) accountAsset.nxtKey;
+          return (DbKey) accountAsset.burstKey;
         }
     };
 
@@ -115,21 +115,33 @@ public class SqlAccountStore implements AccountStore {
 
       @Override
       protected void bulkInsert(DSLContext ctx, ArrayList<Account> accounts) {
-        BatchBindStep insertBatch = ctx.batch(ctx.insertInto(ACCOUNT, ACCOUNT.ID, ACCOUNT.HEIGHT, ACCOUNT.CREATION_HEIGHT,
-            ACCOUNT.PUBLIC_KEY, ACCOUNT.KEY_HEIGHT, ACCOUNT.BALANCE, ACCOUNT.UNCONFIRMED_BALANCE,
-            ACCOUNT.FORGED_BALANCE, ACCOUNT.NAME, ACCOUNT.DESCRIPTION, ACCOUNT.LATEST)
-            .values((Long) null, null, null, null, null, null, null, null, null, null, null));
-        for ( Account account: accounts ) {
-          DbKey dbKey = (DbKey)accountDbKeyFactory.newKey(account.getId());
-          if ( ! getCache().containsKey(dbKey) ) {
-            getCache().put(dbKey, account);
+        if ( ctx.fetchExists(ctx.selectOne().from(ACCOUNT).where(ACCOUNT.HEIGHT.eq(Burst.getBlockchain().getHeight())).limit(1)) ) {
+          ArrayList<Query> accountQueries = new ArrayList<Query>();
+          for ( Account account: accounts ) {
+            accountQueries.add(
+              ctx.mergeInto(ACCOUNT, ACCOUNT.ID, ACCOUNT.HEIGHT, ACCOUNT.CREATION_HEIGHT, ACCOUNT.PUBLIC_KEY, ACCOUNT.KEY_HEIGHT, ACCOUNT.BALANCE,
+                  ACCOUNT.UNCONFIRMED_BALANCE, ACCOUNT.FORGED_BALANCE, ACCOUNT.NAME, ACCOUNT.DESCRIPTION, ACCOUNT.LATEST)
+                  .key(ACCOUNT.ID, ACCOUNT.HEIGHT).values(account.getId(), Burst.getBlockchain().getHeight(), account.getCreationHeight(), account.getPublicKey(), account.getKeyHeight(),
+                  account.getBalanceNQT(), account.getUnconfirmedBalanceNQT(), account.getForgedBalanceNQT(), account.getName(), account.getDescription(), true)
+            );
           }
-          insertBatch.bind(account.getId(), Burst.getBlockchain().getHeight(),
-              account.getCreationHeight(), account.getPublicKey(), account.getKeyHeight(),
-              account.getBalanceNQT(), account.getUnconfirmedBalanceNQT(),
-              account.getForgedBalanceNQT(), account.getName(), account.getDescription(), true);
+          ctx.batch(accountQueries).execute();
         }
-        insertBatch.execute();
+        else {
+          BatchBindStep insertBatch = ctx.batch(
+              ctx.insertInto(ACCOUNT, ACCOUNT.ID, ACCOUNT.HEIGHT, ACCOUNT.CREATION_HEIGHT, ACCOUNT.PUBLIC_KEY, ACCOUNT.KEY_HEIGHT, ACCOUNT.BALANCE,
+                  ACCOUNT.UNCONFIRMED_BALANCE, ACCOUNT.FORGED_BALANCE, ACCOUNT.NAME, ACCOUNT.DESCRIPTION, ACCOUNT.LATEST)
+                  .values((Long) null, null, null, null, null, null, null, null, null, null, null));
+          for (Account account : accounts) {
+            DbKey dbKey = (DbKey) accountDbKeyFactory.newKey(account.getId());
+            if (!getCache().containsKey(dbKey)) {
+              getCache().put(dbKey, account);
+            }
+            insertBatch.bind(account.getId(), Burst.getBlockchain().getHeight(), account.getCreationHeight(), account.getPublicKey(), account.getKeyHeight(),
+                account.getBalanceNQT(), account.getUnconfirmedBalanceNQT(), account.getForgedBalanceNQT(), account.getName(), account.getDescription(), true);
+          }
+          insertBatch.execute();
+        }
       }
 
       @Override
@@ -243,34 +255,34 @@ public class SqlAccountStore implements AccountStore {
 
   @Override
   public boolean setOrVerify(Account acc, byte[] key, int height) {
-    if (acc.publicKey == null) {
+    if (acc.getPublicKey() == null) {
       if (Db.isInTransaction()) {
-        acc.publicKey = key;
-        acc.keyHeight = -1;
+        acc.setPublicKey(key);
+        acc.setKeyHeight(-1);
         getAccountTable().insert(acc);
       }
       return true;
-    } else if (Arrays.equals(acc.publicKey, key)) {
+    } else if (Arrays.equals(acc.getPublicKey(), key)) {
       return true;
-    } else if (acc.keyHeight == -1) {
+    } else if (acc.getKeyHeight() == -1) {
       logger.info("DUPLICATE KEY!!!");
       logger.info("Account key for " + Convert.toUnsignedLong(acc.id) + " was already set to a different one at the same height "
                   + ", current height is " + height + ", rejecting new key");
       return false;
-    } else if (acc.keyHeight >= height) {
+    } else if (acc.getKeyHeight() >= height) {
       logger.info("DUPLICATE KEY!!!");
       if (Db.isInTransaction()) {
         logger.info("Changing key for account " + Convert.toUnsignedLong(acc.id) + " at height " + height
-                    + ", was previously set to a different one at height " + acc.keyHeight);
-        acc.publicKey = key;
-        acc.keyHeight = height;
+                    + ", was previously set to a different one at height " + acc.getKeyHeight());
+        acc.setPublicKey(key);
+        acc.setKeyHeight(height);
         getAccountTable().insert(acc);
       }
       return true;
     }
     logger.info("DUPLICATE KEY!!!");
     logger.info("Invalid key for account " + Convert.toUnsignedLong(acc.id) + " at height " + height
-                + ", was already set to a different one at height " + acc.keyHeight);
+                + ", was already set to a different one at height " + acc.getKeyHeight());
     return false;
   }
 
@@ -293,8 +305,8 @@ public class SqlAccountStore implements AccountStore {
     public SqlAccount(ResultSet rs) throws SQLException {
       super(rs.getLong("id"), accountDbKeyFactory.newKey(rs.getLong("id")),
             rs.getInt("creation_height"));
-      this.publicKey = rs.getBytes("public_key");
-      this.keyHeight = rs.getInt("key_height");
+      this.setPublicKey(rs.getBytes("public_key"));
+      this.setKeyHeight(rs.getInt("key_height"));
       this.balanceNQT = rs.getLong("balance");
       this.unconfirmedBalanceNQT = rs.getLong("unconfirmed_balance");
       this.forgedBalanceNQT = rs.getLong("forged_balance");

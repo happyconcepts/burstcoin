@@ -2,7 +2,6 @@ package brs.http;
 
 import brs.util.Convert;
 
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -64,7 +63,7 @@ public class APITestServlet extends HttpServlet {
       + "                var resultStr = JSON.stringify(JSON.parse(result), null, 4);\n"
       + "                form.getElementsByClassName(\"result\")[0].textContent = resultStr;\n"
       + "            })\n"
-      + "            .error(function() {\n"
+      + "            .fail(function() {\n"
       + "                alert('API not available, check if Burst Server is running!');\n"
       + "            });\n"
       + "            if ($(form).has('.uri-link').length > 0) {\n"
@@ -87,6 +86,7 @@ public class APITestServlet extends HttpServlet {
       + "               <li><input type=\"text\" class=\"form-control\" id=\"search\" "
       + "                    placeholder=\"Search\" style=\"margin-top:8px;\"></li>\n"
       + "               <li><a href=\"https://burstwiki.org/wiki/The_Burst_API\" target=\"_blank\" style=\"margin-left:20px;\">Wiki Docs</a></li>"
+      + "               <li><a href=\"/doc/index.html\" target=\"_blank\" style=\"margin-left:20px;\">Javadoc Index</a></li>"
       + "           </ul>"
       + "       </div>"
       + "   </div>"
@@ -115,8 +115,8 @@ public class APITestServlet extends HttpServlet {
       + "  </div> "
       + "</div> "
       + "</div> "
-      + "<script src=\"js/3rdparty/jquery.min.js\"></script>"
-      + "<script src=\"js/3rdparty/bootstrap.js\" type=\"text/javascript\"></script>"
+      + "<script src=\"js/3rdparty/jquery.min.js\" integrity=\"sha384-tsQFqpEReu7ZLhBV2VZlAu7zcOV+rXbYlF2cqB8txI/8aZajjp4Bqd+V6D5IgvKT\"></script>"
+      + "<script src=\"js/3rdparty/bootstrap.min.js\" integrity=\"sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa\" type=\"text/javascript\"></script>"
       + "<script>"
       + "  $(document).ready(function() {"
       + "    apiCalls = [];\n";
@@ -259,7 +259,6 @@ public class APITestServlet extends HttpServlet {
     }
     buf.append("<a style=\"font-weight:normal;font-size:14px;color:#777;\" href=\"/doc/");
     buf.append(className.replace('.','/')).append(".html\" target=\"_blank\">javadoc</a>");
-    // not yet buf.append(className.replaceAll("nxt","burst").replace('.','/')).append(".html\" target=\"_blank\">javadoc</a>");
     buf.append("</span>");
     buf.append("</h4>");
     buf.append("</div>");

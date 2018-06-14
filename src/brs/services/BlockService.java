@@ -4,7 +4,6 @@ import brs.Block;
 import brs.BlockchainProcessor;
 import brs.BlockchainProcessor.BlockNotAcceptedException;
 import brs.BlockchainProcessor.BlockOutOfOrderException;
-import brs.util.DownloadCacheImpl;
 
 public interface BlockService {
 
@@ -14,7 +13,7 @@ public interface BlockService {
 
   long getBlockReward(Block block);
 
-  void calculateBaseTarget(Block block, Block lastBlock);
+  void calculateBaseTarget(Block block, Block lastBlock) throws BlockOutOfOrderException;
 
   void setPrevious(Block block, Block previousBlock);
 

@@ -1,6 +1,5 @@
 package brs.statistics;
 
-import brs.db.cache.StatisticsCache;
 import brs.services.TimeService;
 import java.util.HashMap;
 import java.util.Map;
@@ -10,7 +9,7 @@ import org.slf4j.LoggerFactory;
 
 public class StatisticsManagerImpl {
 
-  private final Logger logger = LoggerFactory.getLogger(StatisticsCache.class);
+  private final Logger logger = LoggerFactory.getLogger(StatisticsManagerImpl.class);
 
   private TimeService timeService;
 
@@ -45,7 +44,8 @@ public class StatisticsManagerImpl {
     } else if ( addedBlockCount % 500 == 0 ) {
       float blocksPerSecond = 500 / (float) (timeService.getEpochTime() - firstBlockAdded);
 
-      final String handleText = "handling {} blocks/s" + cacheStatistics.values().stream().map(cacheInfo -> " " + cacheInfo.getCacheInfoAndReset()).collect(Collectors.joining()).toString();
+      final String handleText = "handling {} blocks/s"
+          + cacheStatistics.values().stream().map(cacheInfo -> " " + cacheInfo.getCacheInfoAndReset()).collect(Collectors.joining()).toString();
 
       logger.info(handleText, String.format("%.2f", blocksPerSecond));
 
@@ -73,7 +73,7 @@ public class StatisticsManagerImpl {
       cacheHits = 0;
       cacheMisses = 0;
 
-      return String.format("Cache:%s Hit Ratio:%.2f%% Total Hit Ratio:%.2f%%", cacheName, hitRatio * 100, totalHitRatio * 100);
+      return String.format("%s cache hit ratio now/total:%.2f%%/%.2f%%", cacheName, hitRatio * 100, totalHitRatio * 100);
     }
 
     private void cacheHit() {

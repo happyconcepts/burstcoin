@@ -6,7 +6,7 @@ var BRS = (function(BRS, $, undefined) {
 	BRS.console = window.open("", "console", "width=750,height=400,menubar=no,scrollbars=yes,status=no,toolbar=no,resizable=yes");
 	$(BRS.console.document.head).html("<title>" + $.t("console") + "</title><style type='text/css'>body { background:black; color:white; font-family:courier-new,courier;font-size:14px; } pre { font-size:14px; } #console { padding-top:15px; }</style>");
 	$(BRS.console.document.body).html("<div style='position:fixed;top:0;left:0;right:0;padding:5px;background:#efefef;color:black;'>" + $.t("console_opened") + "<div style='float:right;text-decoration:underline;color:blue;font-weight:bold;cursor:pointer;' onclick='document.getElementById(\"console\").innerHTML=\"\"'>clear</div></div><div id='console'></div>");
-    }
+    };
 
     BRS.addToConsole = function(url, type, data, response, error) {
 	if (!BRS.console) {
@@ -18,7 +18,10 @@ var BRS = (function(BRS, $, undefined) {
 	    return;
 	}
 
-	url = url.replace(/&random=[\.\d]+/, "", url);
+        // rico666: see also brs.server.js (line ~ 188 ff)
+        // there it is added, here supposedly removed - but somehow doesn't get removed
+        // weird shit...
+	// url = url.replace(/&random=[\.\d]+/, "", url);
 
 	BRS.addToConsoleBody(url + " (" + type + ") " + new Date().toString(), "url");
 
@@ -38,7 +41,7 @@ var BRS = (function(BRS, $, undefined) {
         else {
 	    BRS.addToConsoleBody(JSON.stringify(response, null, "\t"), (response.errorCode ? "error" : ""));
 	}
-    }
+    };
 
     BRS.addToConsoleBody = function(text, type) {
 	var color = "";
@@ -56,7 +59,7 @@ var BRS = (function(BRS, $, undefined) {
 	}
 
 	$(BRS.console.document.body).find("#console").append("<pre" + (color ? " style='color:" + color + "'" : "") + ">" + text.escapeHTML() + "</pre>");
-    }
+    };
 
     BRS.queryStringToObject = function(qs) {
 	qs = qs.split("&");
@@ -82,7 +85,7 @@ var BRS = (function(BRS, $, undefined) {
 	}
 
 	return obj;
-    }
+    };
 
     return BRS;
 }(BRS || {}, jQuery));

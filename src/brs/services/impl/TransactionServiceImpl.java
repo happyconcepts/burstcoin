@@ -3,6 +3,7 @@ package brs.services.impl;
 import brs.Account;
 import brs.Appendix;
 import brs.Blockchain;
+import brs.Burst;
 import brs.BurstException;
 import brs.Constants;
 import brs.Transaction;

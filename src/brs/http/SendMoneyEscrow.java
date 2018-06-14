@@ -5,9 +5,7 @@ import static brs.http.common.ResultFields.ERROR_CODE_RESPONSE;
 import static brs.http.common.ResultFields.ERROR_DESCRIPTION_RESPONSE;
 
 import brs.*;
-import brs.services.AccountService;
 import brs.services.ParameterService;
-import brs.services.TransactionService;
 import brs.util.Convert;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONStreamAware;
@@ -21,7 +19,7 @@ public final class SendMoneyEscrow extends CreateTransaction {
   private final Blockchain blockchain;
 	
   SendMoneyEscrow(ParameterService parameterService, Blockchain blockchain, APITransactionManager apiTransactionManager) {
-    super(new APITag[] {APITag.TRANSACTIONS, APITag.CREATE_TRANSACTION}, apiTransactionManager, RECIPIENT_PARAMETER, AMOUNT_NQT_PARAMETER, ESCROW_DEADLINE_PARAMETER);
+    super(new APITag[] {APITag.TRANSACTIONS, APITag.CREATE_TRANSACTION}, apiTransactionManager, RECIPIENT_PARAMETER, AMOUNT_NQT_PARAMETER, ESCROW_DEADLINE_PARAMETER, SIGNERS_PARAMETER, REQUIRED_SIGNERS_PARAMETER, DEADLINE_ACTION_PARAMETER);
     this.parameterService = parameterService;
     this.blockchain = blockchain;
   }

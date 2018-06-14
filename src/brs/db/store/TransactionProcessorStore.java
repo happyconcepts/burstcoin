@@ -21,7 +21,7 @@ public interface TransactionProcessorStore {
 
   EntitySqlTable<Transaction> getUnconfirmedTransactionTable();
 
-  BurstIterator<Transaction> getExpiredTransactions();
-
   int deleteTransaction (Transaction transaction);
+
+  boolean hasTransaction(long transactionId);
 }

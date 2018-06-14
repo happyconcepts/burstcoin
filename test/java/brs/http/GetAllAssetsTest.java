@@ -10,8 +10,7 @@ import static brs.http.common.ResultFields.NAME_RESPONSE;
 import static brs.http.common.ResultFields.NUMBER_OF_ACCOUNTS_RESPONSE;
 import static brs.http.common.ResultFields.NUMBER_OF_TRADES_RESPONSE;
 import static brs.http.common.ResultFields.NUMBER_OF_TRANSFERS_RESPONSE;
-import static brs.http.common.ResultFields.QUANTITY_NQT_RESPONSE;
-import static brs.http.common.ResultFields.QUANTITY_RESPONSE;
+import static brs.http.common.ResultFields.QUANTITY_QNT_RESPONSE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.mockito.Matchers.eq;
@@ -19,14 +18,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import brs.Asset;
+import brs.assetexchange.AssetExchange;
 import brs.common.AbstractUnitTest;
 import brs.common.QuickMocker;
 import brs.common.QuickMocker.MockParam;
 import brs.db.BurstIterator;
-import brs.services.AssetAccountService;
-import brs.services.AssetService;
-import brs.services.AssetTransferService;
-import brs.services.TradeService;
 import javax.servlet.http.HttpServletRequest;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -37,19 +33,13 @@ public class GetAllAssetsTest extends AbstractUnitTest {
 
   private GetAllAssets t;
 
-  private AssetService assetService;
-  private AssetAccountService assetAccountService;
-  private AssetTransferService assetTransferService;
-  private TradeService tradeService;
+  private AssetExchange assetExchange;
 
   @Before
   public void setUp() {
-    assetService = mock(AssetService.class);
-    assetAccountService = mock(AssetAccountService.class);
-    assetTransferService = mock(AssetTransferService.class);
-    tradeService = mock(TradeService.class);
+    assetExchange = mock(AssetExchange.class);
 
-    t = new GetAllAssets(assetService, assetAccountService, assetTransferService, tradeService);
+    t = new GetAllAssets(assetExchange);
   }
 
   @Test
@@ -74,10 +64,10 @@ public class GetAllAssetsTest extends AbstractUnitTest {
 
     final BurstIterator<Asset> mockAssetIterator = mockBurstIterator(mockAsset);
 
-    when(assetService.getAllAssets(eq(firstIndex), eq(lastIndex))).thenReturn(mockAssetIterator);
-    when(assetAccountService.getAssetAccountsCount(eq(mockAssetId))).thenReturn(1);
-    when(assetTransferService.getTransferCount(eq(mockAssetId))).thenReturn(2);
-    when(tradeService.getTradeCount(eq(mockAssetId))).thenReturn(3);
+    when(assetExchange.getAllAssets(eq(firstIndex), eq(lastIndex))).thenReturn(mockAssetIterator);
+    when(assetExchange.getAssetAccountsCount(eq(mockAssetId))).thenReturn(1);
+    when(assetExchange.getTransferCount(eq(mockAssetId))).thenReturn(2);
+    when(assetExchange.getTradeCount(eq(mockAssetId))).thenReturn(3);
 
     final JSONObject result = (JSONObject) t.processRequest(req);
     assertNotNull(result);
@@ -92,7 +82,7 @@ public class GetAllAssetsTest extends AbstractUnitTest {
     assertEquals(mockAsset.getName(), assetResult.get(NAME_RESPONSE));
     assertEquals(mockAsset.getDescription(), assetResult.get(DESCRIPTION_RESPONSE));
     assertEquals(mockAsset.getDecimals(), assetResult.get(DECIMALS_RESPONSE));
-    assertEquals("" + mockAsset.getQuantityQNT(), assetResult.get(QUANTITY_NQT_RESPONSE));
+    assertEquals("" + mockAsset.getQuantityQNT(), assetResult.get(QUANTITY_QNT_RESPONSE));
     assertEquals("" + mockAsset.getId(), assetResult.get(ASSET_RESPONSE));
     assertEquals(1, assetResult.get(NUMBER_OF_ACCOUNTS_RESPONSE));
     assertEquals(2, assetResult.get(NUMBER_OF_TRANSFERS_RESPONSE));

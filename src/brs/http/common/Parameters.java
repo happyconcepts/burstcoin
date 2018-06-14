@@ -7,7 +7,7 @@ public class Parameters {
   public static final String ALIAS_NAME_PARAMETER = "aliasName";
   public static final String FEE_QT_PARAMETER = "feeNQT";
   public static final String PRICE_NQT_PARAMETER = "priceNQT";
-  public static final String QUANTITY_NQT_PARAMETER = "quantityQNT";
+  public static final String QUANTITY_QNT_PARAMETER = "quantityQNT";
   public static final String ASSET_PARAMETER = "asset";
   public static final String ASSETS_PARAMETER = "assets";
   public static final String GOODS_PARAMETER = "goods";
@@ -29,6 +29,7 @@ public class Parameters {
   public static final String ACCOUNT_PARAMETER = "account";
   public static final String TIMESTAMP_PARAMETER = "timestamp";
   public static final String RECIPIENT_PARAMETER = "recipient";
+  public static final String RECIPIENTS_PARAMETER = "recipients";
   public static final String SELLER_PARAMETER = "seller";
   public static final String BUYER_PARAMETER = "buyer";
   public static final String FIRST_INDEX_PARAMETER = "firstIndex";
@@ -61,7 +62,7 @@ public class Parameters {
   public static final String GOODS_IS_TEXT_PARAMETER = "goodsIsText";
   public static final String TAGS_PARAMETER = "tags";
   public static final String DELIVERY_DEADLINE_TIMESTAMP_PARAMETER = "deliveryDeadlineTimestamp";
-  public static final String DELTA_QUALITY_PARAMETER = "deltaQuantity";
+  public static final String DELTA_QUANTITY_PARAMETER = "deltaQuantity";
   public static final String ESCROW_PARAMETER = "escrow";
   public static final String DECISION_PARAMETER = "decision";
   public static final String DECIMALS_PARAMETER = "decimals";
@@ -98,13 +99,27 @@ public class Parameters {
   public static final String UNSIGNED_TRANSACTION_JSON_PARAMETER = "unsignedTransactionJSON";
   public static final String AMOUNT_BURST_PARAMETER = "amountNXT";
   public static final String FEE_BURST_PARAMETER = "feeNXT";
-  public static final String HALLMARK_PARAMETER = "hallmark";
   public static final String IN_STOCK_ONLY_PARAMETER = "inStockOnly";
   public static final String COMPLETED_PARAMETER = "completed";
   public static final String PEER_PARAMETER = "peer";
   public static final String ACTIVE_PARAMETER = "active";
   public static final String STATE_PARAMETER = "state";
   public static final String ID_PARAMETER = "id";
+  public static final String URI_PARAMETER = "uri";
+  public static final String FEE_PARAMETER = "fee";
+  public static final String TOKEN_PARAMETER = "token";
+  public static final String WEBSITE_PARAMETER = "website";
+  public static final String AMOUNT_PARAMETER = "amount";
+  public static final String PRICE_PARAMETER = "price";
+  public static final String HOST_PARAMETER = "host";
+  public static final String DATE_PARAMETER = "date";
+  public static final String ESCROW_ID_PARAMETER = "escrowId";
+  public static final String SUBSCRIPTION_ID_PARAMETER = "subscriptionId";
+  public static final String BLOCK_HEIGHT_PARAMETER = "blockheight";
+  public static final String SUBSCRIPTIONS_RESPONSE = "subscriptions";
+  public static final String ESCROWS_RESPONSE = "escrows";
+  public static final String ACCOUNTS_RESPONSE = "accounts";
+  public static final String RECIPIENTS_RESPONSE = "recipients";
 
   public static boolean isFalse(String text) {
     return "false".equalsIgnoreCase(text);
